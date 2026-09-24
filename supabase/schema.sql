@@ -94,10 +94,10 @@ CREATE POLICY "Field tests are viewable for verification"
     TO anon, authenticated
     USING (true);
 
--- Only authenticated users (or service role) can insert a test
-CREATE POLICY "Authenticated operators can insert field tests"
+-- Anyone (authenticated operators or demo client) can insert a test
+CREATE POLICY "Operators can insert field tests"
     ON public.field_tests FOR INSERT
-    TO authenticated
+    TO anon, authenticated
     WITH CHECK (true);
 
 -- Immutable records: No one may UPDATE or DELETE existing field test records

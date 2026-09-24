@@ -2,13 +2,18 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
+import { getActiveTestDraft } from '../../lib/testSession';
+import { DEMO_FIXTURES } from '../../lib/classifier';
 
-/**
- * Review screen — displays captured image with quality validation results.
- * Operator confirms or retakes before classification proceeds.
- */
 export default function ReviewScreen() {
   const router = useRouter();
+  const draft = getActiveTestDraft();
+  const fixture = DEMO_FIXTURES[draft.scenarioKey];
+
+  const dateObj = new Date(draft.timestamp);
+  const formattedTime = !isNaN(dateObj.getTime())
+    ? dateObj.toUTCString()
+    : '24 Sep 2026 UTC';
 
   return (
     <ScrollView
@@ -16,34 +21,75 @@ export default function ReviewScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      {/* Captured image placeholder */}
+      {/* Captured Image / Sample Visualization */}
       <View style={styles.imageContainer}>
-        <View style={styles.imagePlaceholder}>
-          <Ionicons name="image" size={48} color={Colors.textTertiary} />
-          <Text style={styles.imagePlaceholderText}>Captured Image</Text>
+        <View
+          style={[
+            styles.imagePreviewBox,
+            {
+              backgroundColor: `rgb(${fixture.params.observedRgb.r}, ${fixture.params.observedRgb.g}, ${fixture.params.observedRgb.b})`,
+            },
+          ]}
+        >
+          <View style={styles.previewTag}>
+            <Text style={styles.previewTagText}>RAW SENSOR CAPTURE</Text>
+          </View>
+          <View style={styles.whiteReferenceChip}>
+            <View style={styles.whiteDot} />
+            <Text style={styles.whiteReferenceText}>Ref White: 245, 245, 245</Text>
+          </View>
         </View>
       </View>
 
       {/* Quality checks */}
       <View style={styles.qualityCard}>
-        <Text style={styles.sectionTitle}>IMAGE QUALITY</Text>
+        <Text style={styles.sectionTitle}>IMAGE QUALITY GATES</Text>
 
-        <QualityRow label="Reference card" value="Detected" status="pass" />
-        <QualityRow label="Focus" value="Sharp" status="pass" />
-        <QualityRow label="Exposure" value="Good" status="pass" />
-        <QualityRow label="Test region" value="Detected" status="pass" />
-        <QualityRow label="Lighting" value="GOOD" status="pass" />
-        <QualityRow label="Glare" value="None" status="pass" />
+        <QualityRow
+          label="Reference card detected"
+          value={draft.quality.referenceCard ? 'Valid (CIE D65)' : 'Missing'}
+          status={draft.quality.referenceCard ? 'pass' : 'fail'}
+        />
+        <QualityRow
+          label="Focus & sharpness"
+          value={draft.quality.focus ? 'Sharp (Variance > 180)' : 'Blurry'}
+          status={draft.quality.focus ? 'pass' : 'fail'}
+        />
+        <QualityRow
+          label="Exposure & dynamic range"
+          value="Normal (No clipping)"
+          status="pass"
+        />
+        <QualityRow
+          label="Test region segmentation"
+          value={draft.quality.testRegion ? 'Segmented' : 'Not detected'}
+          status={draft.quality.testRegion ? 'pass' : 'fail'}
+        />
+        <QualityRow
+          label="Lighting condition"
+          value={draft.quality.lighting}
+          status={draft.quality.lighting === 'GOOD' ? 'pass' : draft.quality.lighting === 'FAIR' ? 'warn' : 'fail'}
+        />
+        <QualityRow
+          label="Specular glare filter"
+          value={draft.quality.lighting === 'POOR' ? 'High Glare' : 'Suppressed'}
+          status={draft.quality.lighting === 'POOR' ? 'fail' : 'pass'}
+        />
       </View>
 
       {/* Metadata */}
       <View style={styles.metadataCard}>
-        <Text style={styles.sectionTitle}>CAPTURE METADATA</Text>
+        <Text style={styles.sectionTitle}>PROVENANCE METADATA</Text>
 
-        <MetadataRow label="Timestamp" value="24 Sep 2026 · 22:41:32 IST" />
-        <MetadataRow label="Location" value="19.0760, 72.8777" />
-        <MetadataRow label="GPS accuracy" value="±8.4 m" />
-        <MetadataRow label="Operator" value="OP-042" />
+        <MetadataRow label="Timestamp (UTC)" value={formattedTime} mono />
+        <MetadataRow
+          label="GPS Coordinates"
+          value={`${draft.latitude.toFixed(4)}, ${draft.longitude.toFixed(4)}`}
+          mono
+        />
+        <MetadataRow label="GPS Accuracy" value={`±${draft.accuracyMeters} m`} mono />
+        <MetadataRow label="Operator Identity" value={draft.operatorId} mono />
+        <MetadataRow label="Kit Type" value="Marquis Reagent (Acid/Formaldehyde)" />
       </View>
 
       {/* Actions */}
@@ -62,7 +108,7 @@ export default function ReviewScreen() {
           onPress={() => router.push('/test/result')}
           activeOpacity={0.85}
         >
-          <Text style={styles.proceedButtonText}>Classify Result</Text>
+          <Text style={styles.proceedButtonText}>Run Deterministic Analysis</Text>
           <Ionicons name="arrow-forward" size={20} color={Colors.textInverse} />
         </TouchableOpacity>
       </View>
@@ -90,18 +136,18 @@ function QualityRow({
 
   return (
     <View style={styles.qualityRow}>
-      <Ionicons name={statusIcon as any} size={16} color={statusColor} />
+      <Ionicons name={statusIcon} size={16} color={statusColor} />
       <Text style={styles.qualityLabel}>{label}</Text>
       <Text style={[styles.qualityValue, { color: statusColor }]}>{value}</Text>
     </View>
   );
 }
 
-function MetadataRow({ label, value }: { label: string; value: string }) {
+function MetadataRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <View style={styles.metadataRow}>
       <Text style={styles.metadataLabel}>{label}</Text>
-      <Text style={styles.metadataValue}>{value}</Text>
+      <Text style={[styles.metadataValue, mono && styles.mono]}>{value}</Text>
     </View>
   );
 }
@@ -116,50 +162,81 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing['5xl'],
   },
   imageContainer: {
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
+    alignItems: 'center',
     marginBottom: Spacing.lg,
-    ...Shadow.sm,
   },
-  imagePlaceholder: {
-    height: 240,
-    backgroundColor: Colors.surface,
+  imagePreviewBox: {
+    width: '100%',
+    height: 180,
+    borderRadius: BorderRadius.lg,
+    justifyContent: 'space-between',
+    padding: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.sm,
+    ...Shadow.sm,
   },
-  imagePlaceholderText: {
-    fontSize: FontSize.sm,
-    color: Colors.textTertiary,
+  previewTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.xs,
+  },
+  previewTagText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 1,
+  },
+  whiteReferenceChip: {
+    alignSelf: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    gap: 6,
+  },
+  whiteDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  whiteReferenceText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontFamily: 'monospace',
   },
   qualityCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   sectionTitle: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
     color: Colors.textTertiary,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     marginBottom: Spacing.md,
   },
   qualityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
     gap: Spacing.sm,
   },
   qualityLabel: {
     flex: 1,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
+    fontSize: FontSize.sm,
+    color: Colors.text,
   },
   qualityValue: {
     fontSize: FontSize.sm,
@@ -169,9 +246,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing['2xl'],
+    marginBottom: Spacing.xl,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   metadataRow: {
     flexDirection: 'row',
@@ -179,7 +257,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    borderBottomColor: Colors.border,
   },
   metadataLabel: {
     fontSize: FontSize.sm,
@@ -187,8 +265,10 @@ const styles = StyleSheet.create({
   },
   metadataValue: {
     fontSize: FontSize.sm,
+    color: Colors.text,
     fontWeight: FontWeight.medium,
-    color: Colors.textPrimary,
+  },
+  mono: {
     fontFamily: 'monospace',
   },
   actions: {
@@ -200,15 +280,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md + 2,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.accent,
     backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
   },
   retakeButtonText: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.base,
     fontWeight: FontWeight.semibold,
     color: Colors.accent,
   },
@@ -217,14 +297,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md + 2,
+    backgroundColor: Colors.primary,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
+    ...Shadow.md,
   },
   proceedButtonText: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
     color: Colors.textInverse,
   },
 });

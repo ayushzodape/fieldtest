@@ -10,6 +10,7 @@ export const Colors = {
   background: '#F7F9FC',
   surface: '#FFFFFF',
   primary: '#172033',
+  primaryLight: '#E8ECF4',
   secondary: '#526071',
 
   // Accent
@@ -27,6 +28,8 @@ export const Colors = {
   // Neutral
   border: '#DCE2EA',
   borderLight: '#EEF1F5',
+  borderDark: '#A8B3C2',
+  text: '#172033',
   textPrimary: '#172033',
   textSecondary: '#526071',
   textTertiary: '#8A95A3',
@@ -52,6 +55,7 @@ export const Spacing = {
 } as const;
 
 export const BorderRadius = {
+  xs: 4,
   sm: 6,
   md: 8,
   lg: 12,
@@ -63,6 +67,7 @@ export const FontSize = {
   xs: 11,
   sm: 13,
   md: 15,
+  base: 15,
   lg: 17,
   xl: 20,
   '2xl': 24,

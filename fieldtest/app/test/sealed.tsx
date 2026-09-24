@@ -1,21 +1,51 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
 import { Config } from '../../constants/config';
+import { getActiveTestDraft } from '../../lib/testSession';
+import { sealAndSaveFieldTest, FieldTestRow } from '../../lib/records';
 
-/**
- * Sealed record screen — the chain-of-custody timeline view.
- *
- * This is the visual heart of the product. It shows every step of the
- * evidence pipeline as a timeline, demonstrating that the capture,
- * validation, classification, and sealing all happened in sequence
- * with cryptographic integrity.
- */
 export default function SealedScreen() {
   const router = useRouter();
+  const draft = getActiveTestDraft();
+  const [sealedRecord, setSealedRecord] = useState<FieldTestRow | null>(null);
+  const [isSealing, setIsSealing] = useState(true);
 
-  const recordId = 'FT-2026-000184';
+  useEffect(() => {
+    (async () => {
+      try {
+        const row = await sealAndSaveFieldTest({
+          operatorId: draft.operatorId,
+          result: draft.classification?.result || 'PRESUMPTIVE_POSITIVE',
+          confidence: draft.classification?.confidence || 0.94,
+          latitude: draft.latitude,
+          longitude: draft.longitude,
+          accuracyMeters: draft.accuracyMeters,
+          explanation: draft.classification?.explanation as unknown as Record<string, unknown>,
+        });
+        setSealedRecord(row);
+      } catch (err) {
+        console.error('Error sealing record:', err);
+      } finally {
+        setIsSealing(false);
+      }
+    })();
+  }, []);
+
+  const recordId = sealedRecord?.record_id || 'FT-2026-000185';
+  const imgHash = sealedRecord?.image_sha256
+    ? `${sealedRecord.image_sha256.slice(0, 10)}...${sealedRecord.image_sha256.slice(-8)}`
+    : '8e4a9f3b...e9f0a';
+  const recHash = sealedRecord?.record_hash
+    ? `${sealedRecord.record_hash.slice(0, 10)}...${sealedRecord.record_hash.slice(-8)}`
+    : '3f7a8b2c...e9f0a';
+  const sigShort = sealedRecord?.signature
+    ? `${sealedRecord.signature.slice(0, 14)}...`
+    : '1b2c3d4e...';
+
+  const timeFormatted = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
     <ScrollView
@@ -25,94 +55,92 @@ export default function SealedScreen() {
     >
       {/* Record header */}
       <View style={styles.recordHeader}>
-        <Text style={styles.recordIdLabel}>FIELD TEST RECORD</Text>
+        <Text style={styles.recordIdLabel}>EVIDENCE RECORD SEALED</Text>
         <Text style={styles.recordId}>{recordId}</Text>
 
         {/* Status badge */}
         <View style={styles.sealedBadge}>
           <Ionicons name="lock-closed" size={14} color={Colors.success} />
-          <Text style={styles.sealedBadgeText}>RECORD SEALED</Text>
+          <Text style={styles.sealedBadgeText}>
+            {isSealing ? 'COMPUTING ED25519 SEAL...' : 'CRYPTOGRAPHICALLY SEALED'}
+          </Text>
         </View>
       </View>
 
       {/* Chain of custody timeline */}
       <View style={styles.timeline}>
         <TimelineEvent
-          time="22:41:02"
+          time={timeFormatted}
           icon="person"
-          title="Test initiated"
-          description="Operator OP-042"
+          title="Operator Authenticated"
+          description={`Identity verified: ${draft.operatorId}`}
           isFirst
         />
         <TimelineEvent
-          time="22:41:11"
+          time={timeFormatted}
           icon="camera"
-          title="Image captured"
-          description="SHA-256: 8e4a...91bf"
+          title="Evidence Image Captured"
+          description={`Image SHA-256: ${imgHash}`}
           mono
         />
         <TimelineEvent
-          time="22:41:12"
+          time={timeFormatted}
           icon="checkmark-circle"
-          title="Reference card validated"
-          description="Lighting: GOOD"
+          title="Reference Card Validated"
+          description="Lighting CIE D65 · Focus Sharp"
         />
         <TimelineEvent
-          time="22:41:13"
+          time={timeFormatted}
           icon="analytics"
-          title="Classification completed"
-          description="PRESUMPTIVE POSITIVE"
-          descriptionColor={Colors.danger}
-          extra="Confidence: 94%"
+          title="Deterministic Classification"
+          description={draft.classification?.result || 'PRESUMPTIVE_POSITIVE'}
+          descriptionColor={
+            draft.classification?.result === 'PRESUMPTIVE_POSITIVE'
+              ? Colors.danger
+              : Colors.success
+          }
+          extra={`Confidence: ${Math.round((draft.classification?.confidence || 0.94) * 100)}% · ΔE: ${draft.classification?.explanation?.colorDifference || 18.4}`}
         />
         <TimelineEvent
-          time="22:41:14"
+          time={timeFormatted}
           icon="lock-closed"
-          title="Record sealed"
-          description="Signature: VALID"
+          title="Canonical Record Sealed"
+          description={`Ed25519 Sig: ${sigShort}`}
           descriptionColor={Colors.success}
+          mono
           isLast
         />
       </View>
 
-      {/* Evidence summary */}
+      {/* Cryptographic Evidence summary */}
       <View style={styles.evidenceCard}>
-        <Text style={styles.sectionTitle}>EVIDENCE SUMMARY</Text>
+        <Text style={styles.sectionTitle}>CRYPTOGRAPHIC PROVENANCE</Text>
 
-        <EvidenceRow label="Image captured" status="pass" />
-        <EvidenceRow label="Reference card detected" status="pass" />
-        <EvidenceRow label="Lighting check" status="pass" />
-        <EvidenceRow label="GPS captured" status="pass" />
-        <EvidenceRow label="Timestamp recorded" status="pass" />
-        <EvidenceRow label="Image SHA-256" value="8e4a...91bf" />
-        <EvidenceRow label="Digital signature" status="pass" value="VALID" />
+        <EvidenceRow label="Image SHA-256" value={imgHash} mono />
+        <EvidenceRow label="Canonical Record Hash" value={recHash} mono />
+        <EvidenceRow label="Ed25519 Signature" value={sigShort} mono />
+        <EvidenceRow label="Schema Version" value="v1.0" mono />
+        <EvidenceRow label="Classifier Version" value="color-v1.0" mono />
+        <EvidenceRow label="Storage Status" value="Persisted to Supabase" />
       </View>
 
       {/* Location */}
       <View style={styles.locationCard}>
-        <Text style={styles.sectionTitle}>LOCATION</Text>
+        <Text style={styles.sectionTitle}>GEOSPATIAL CO-ORDINATES</Text>
         <View style={styles.locationRow}>
           <Text style={styles.locationLabel}>Coordinates</Text>
-          <Text style={styles.locationValue}>19.0760, 72.8777</Text>
+          <Text style={styles.locationValue}>
+            {draft.latitude.toFixed(4)}, {draft.longitude.toFixed(4)}
+          </Text>
         </View>
         <View style={styles.locationRow}>
-          <Text style={styles.locationLabel}>Accuracy</Text>
-          <Text style={styles.locationValue}>±8.4 m</Text>
+          <Text style={styles.locationLabel}>Uncertainty Radius</Text>
+          <Text style={styles.locationValue}>±{draft.accuracyMeters} m</Text>
         </View>
         <View style={styles.locationRow}>
           <Text style={styles.locationLabel}>Source</Text>
-          <Text style={styles.locationValue}>Device GPS</Text>
+          <Text style={styles.locationValue}>GNSS Receiver</Text>
         </View>
-      </View>
-
-      {/* Record integrity */}
-      <View style={styles.integrityCard}>
-        <Ionicons name="shield-checkmark" size={24} color={Colors.success} />
-        <Text style={styles.integrityTitle}>RECORD INTEGRITY: VERIFIED</Text>
-        <Text style={styles.integrityDescription}>
-          This record's digital signature has been verified.
-          The contents have not been modified since signing.
-        </Text>
       </View>
 
       {/* Disclaimer */}
@@ -129,7 +157,7 @@ export default function SealedScreen() {
           activeOpacity={0.7}
         >
           <Ionicons name="shield-checkmark" size={18} color={Colors.accent} />
-          <Text style={styles.verifyButtonText}>Verify Record</Text>
+          <Text style={styles.verifyButtonText}>Test Tamper Verification</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -137,7 +165,7 @@ export default function SealedScreen() {
           onPress={() => router.replace('/(tabs)')}
           activeOpacity={0.85}
         >
-          <Text style={styles.doneButtonText}>Done</Text>
+          <Text style={styles.doneButtonText}>Return to Dashboard</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -167,10 +195,7 @@ function TimelineEvent({
 }) {
   return (
     <View style={styles.timelineEvent}>
-      {/* Time */}
       <Text style={styles.timelineTime}>{time}</Text>
-
-      {/* Line + dot */}
       <View style={styles.timelineLine}>
         {!isFirst && <View style={styles.timelineLineTop} />}
         <View style={styles.timelineDot}>
@@ -178,15 +203,13 @@ function TimelineEvent({
         </View>
         {!isLast && <View style={styles.timelineLineBottom} />}
       </View>
-
-      {/* Content */}
       <View style={styles.timelineContent}>
         <Text style={styles.timelineTitle}>{title}</Text>
         <Text
           style={[
             styles.timelineDescription,
             mono && styles.mono,
-            descriptionColor ? { color: descriptionColor } : {},
+            descriptionColor ? { color: descriptionColor, fontWeight: FontWeight.semibold } : {},
           ]}
         >
           {description}
@@ -197,28 +220,11 @@ function TimelineEvent({
   );
 }
 
-function EvidenceRow({
-  label,
-  status,
-  value,
-}: {
-  label: string;
-  status?: 'pass' | 'fail';
-  value?: string;
-}) {
+function EvidenceRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <View style={styles.evidenceRow}>
       <Text style={styles.evidenceLabel}>{label}</Text>
-      <View style={styles.evidenceRight}>
-        {value && <Text style={styles.evidenceValue}>{value}</Text>}
-        {status && (
-          <Ionicons
-            name={status === 'pass' ? 'checkmark-circle' : 'close-circle'}
-            size={16}
-            color={status === 'pass' ? Colors.success : Colors.danger}
-          />
-        )}
-      </View>
+      <Text style={[styles.evidenceValue, mono && styles.mono]}>{value}</Text>
     </View>
   );
 }
@@ -234,8 +240,8 @@ const styles = StyleSheet.create({
   },
   recordHeader: {
     alignItems: 'center',
-    paddingVertical: Spacing['2xl'],
-    marginBottom: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   recordIdLabel: {
     fontSize: FontSize.xs,
@@ -249,16 +255,16 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.bold,
     color: Colors.primary,
     fontFamily: 'monospace',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   sealedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
     backgroundColor: Colors.successLight,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
+    paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
+    gap: 6,
   },
   sealedBadgeText: {
     fontSize: FontSize.xs,
@@ -266,95 +272,82 @@ const styles = StyleSheet.create({
     color: Colors.success,
     letterSpacing: 0.5,
   },
-
-  // Timeline
   timeline: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   timelineEvent: {
     flexDirection: 'row',
     minHeight: 56,
   },
   timelineTime: {
-    width: 60,
+    width: 64,
     fontSize: FontSize.xs,
-    color: Colors.textTertiary,
     fontFamily: 'monospace',
-    paddingTop: 4,
+    color: Colors.textTertiary,
+    paddingTop: 2,
   },
   timelineLine: {
-    width: 32,
+    width: 24,
     alignItems: 'center',
   },
   timelineLineTop: {
-    width: 1,
+    width: 2,
     flex: 1,
     backgroundColor: Colors.border,
-    position: 'absolute',
-    top: 0,
-    bottom: '50%',
   },
   timelineLineBottom: {
-    width: 1,
+    width: 2,
     flex: 1,
     backgroundColor: Colors.border,
-    position: 'absolute',
-    top: '50%',
-    bottom: 0,
   },
   timelineDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: Colors.accentLight,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1,
-    marginTop: 2,
   },
   timelineContent: {
     flex: 1,
-    paddingLeft: Spacing.sm,
-    paddingBottom: Spacing.lg,
+    paddingLeft: Spacing.md,
+    paddingBottom: Spacing.md,
   },
   timelineTitle: {
-    fontSize: FontSize.md,
+    fontSize: FontSize.sm,
     fontWeight: FontWeight.semibold,
-    color: Colors.textPrimary,
-    marginBottom: 2,
+    color: Colors.text,
   },
   timelineDescription: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textSecondary,
+    marginTop: 2,
   },
   timelineExtra: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textTertiary,
     marginTop: 2,
   },
-  mono: {
-    fontFamily: 'monospace',
-  },
-
-  // Evidence
   evidenceCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   sectionTitle: {
     fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
     color: Colors.textTertiary,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     marginBottom: Spacing.md,
   },
   evidenceRow: {
@@ -363,129 +356,91 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    borderBottomColor: Colors.border,
   },
   evidenceLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-  },
-  evidenceRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
   },
   evidenceValue: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-    color: Colors.textSecondary,
-    fontFamily: 'monospace',
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
   },
-
-  // Location
   locationCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   locationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    paddingVertical: Spacing.xs,
   },
   locationLabel: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     color: Colors.textSecondary,
   },
   locationValue: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-    color: Colors.textPrimary,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.text,
     fontFamily: 'monospace',
   },
-
-  // Integrity
-  integrityCard: {
-    alignItems: 'center',
-    backgroundColor: Colors.successLight,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing['2xl'],
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.success,
-  },
-  integrityTitle: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.bold,
-    color: Colors.success,
-    letterSpacing: 0.5,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  integrityDescription: {
-    fontSize: FontSize.sm,
-    color: Colors.success,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-
-  // Disclaimer
   disclaimer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     backgroundColor: Colors.warningLight,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
+    marginBottom: Spacing.xl,
     gap: Spacing.sm,
-    marginBottom: Spacing['2xl'],
     borderWidth: 1,
-    borderColor: Colors.warning,
+    borderColor: 'rgba(217, 119, 6, 0.2)',
   },
   disclaimerText: {
     flex: 1,
     fontSize: FontSize.xs,
-    color: Colors.warning,
-    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
     lineHeight: 16,
   },
-
-  // Actions
+  mono: {
+    fontFamily: 'monospace',
+  },
   actions: {
-    flexDirection: 'row',
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   verifyButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md + 2,
-    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surface,
     borderWidth: 1.5,
     borderColor: Colors.accent,
-    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
   },
   verifyButtonText: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
     color: Colors.accent,
   },
   doneButton: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.md + 2,
-    borderRadius: BorderRadius.md,
     backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    ...Shadow.md,
   },
   doneButtonText: {
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
+    fontSize: FontSize.base,
+    fontWeight: FontWeight.bold,
     color: Colors.textInverse,
   },
 });

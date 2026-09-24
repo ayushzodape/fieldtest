@@ -1,20 +1,27 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
 import { Config } from '../../constants/config';
+import { getFieldTests, FieldTestRow } from '../../lib/records';
 
-/**
- * Home screen — the operator's primary view.
- *
- * Shows:
- * - Operator greeting
- * - New Field Test button (primary action)
- * - Recent tests summary
- * - Prominent disclaimer
- */
 export default function HomeScreen() {
   const router = useRouter();
+  const [recentTests, setRecentTests] = useState<FieldTestRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const records = await getFieldTests();
+      setRecentTests(records.slice(0, 4));
+      setLoading(false);
+    })();
+  }, []);
+
+  const totalCount = recentTests.length;
+  const positiveCount = recentTests.filter((r) => r.result === 'PRESUMPTIVE_POSITIVE').length;
+  const inconclusiveCount = recentTests.filter((r) => r.result === 'INCONCLUSIVE').length;
 
   return (
     <ScrollView
@@ -22,13 +29,18 @@ export default function HomeScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      {/* Greeting */}
+      {/* Greeting Header */}
       <View style={styles.greeting}>
-        <Text style={styles.greetingLabel}>Good evening,</Text>
-        <Text style={styles.greetingName}>Officer OP-042</Text>
+        <View>
+          <Text style={styles.greetingLabel}>FIELD OPERATIONS · AUDIT TRAIL</Text>
+          <Text style={styles.greetingName}>Officer OP-042</Text>
+        </View>
+        <View style={styles.agencyBadge}>
+          <Text style={styles.agencyBadgeText}>FORENSIC UNIT</Text>
+        </View>
       </View>
 
-      {/* Primary action */}
+      {/* Primary CTA: New Field Test */}
       <TouchableOpacity
         style={styles.newTestButton}
         onPress={() => router.push('/test/capture')}
@@ -40,31 +52,47 @@ export default function HomeScreen() {
         <View style={styles.newTestContent}>
           <Text style={styles.newTestTitle}>New Field Test</Text>
           <Text style={styles.newTestDescription}>
-            Capture, classify, and seal a digital record
+            Capture, classify, and seal a digital evidence record
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={Colors.textInverse} />
       </TouchableOpacity>
 
+      {/* Evidence Stats Bar */}
+      <View style={styles.statsRow}>
+        <View style={styles.statBox}>
+          <Text style={styles.statValue}>{totalCount}</Text>
+          <Text style={styles.statLabel}>Sealed Records</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={[styles.statValue, { color: Colors.danger }]}>{positiveCount}</Text>
+          <Text style={styles.statLabel}>Presumptive Pos</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={[styles.statValue, { color: Colors.warning }]}>{inconclusiveCount}</Text>
+          <Text style={styles.statLabel}>Inconclusive</Text>
+        </View>
+      </View>
+
       {/* Workflow steps */}
       <View style={styles.workflowCard}>
-        <Text style={styles.sectionTitle}>Workflow</Text>
+        <Text style={styles.sectionTitle}>EVIDENCE PIPELINE</Text>
         <WorkflowStep number={1} label="Identify operator" icon="person" />
-        <WorkflowStep number={2} label="Capture test" icon="camera" />
-        <WorkflowStep number={3} label="Verify image" icon="checkmark-circle" />
-        <WorkflowStep number={4} label="Classify result" icon="analytics" />
-        <WorkflowStep number={5} label="Seal digital record" icon="lock-closed" />
+        <WorkflowStep number={2} label="Guided capture + card framing" icon="camera" />
+        <WorkflowStep number={3} label="Quality checks (Focus/Lighting)" icon="checkmark-circle" />
+        <WorkflowStep number={4} label="Deterministic CIELAB ΔE classification" icon="analytics" />
+        <WorkflowStep number={5} label="SHA-256 + Ed25519 cryptographic seal" icon="lock-closed" />
       </View>
 
       {/* Quick actions */}
       <View style={styles.quickActions}>
         <TouchableOpacity
           style={styles.quickActionCard}
-          onPress={() => router.push('/verify/demo')}
+          onPress={() => router.push(`/verify/${recentTests[0]?.record_id || 'FT-2026-000184'}`)}
           activeOpacity={0.7}
         >
-          <Ionicons name="shield-checkmark" size={24} color={Colors.accent} />
-          <Text style={styles.quickActionLabel}>Verify Record</Text>
+          <Ionicons name="shield-checkmark" size={22} color={Colors.accent} />
+          <Text style={styles.quickActionLabel}>Verify Integrity</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -72,36 +100,40 @@ export default function HomeScreen() {
           onPress={() => router.push('/(tabs)/tests')}
           activeOpacity={0.7}
         >
-          <Ionicons name="document-text" size={24} color={Colors.accent} />
-          <Text style={styles.quickActionLabel}>View Records</Text>
+          <Ionicons name="document-text" size={22} color={Colors.accent} />
+          <Text style={styles.quickActionLabel}>Evidence Registry</Text>
         </TouchableOpacity>
       </View>
 
       {/* Recent tests */}
       <View style={styles.recentSection}>
-        <Text style={styles.sectionTitle}>Recent Tests</Text>
+        <View style={styles.recentHeader}>
+          <Text style={styles.sectionTitle}>RECENT AUDIT RECORDS</Text>
+          <TouchableOpacity onPress={() => router.push('/(tabs)/tests')}>
+            <Text style={styles.viewAllText}>View all →</Text>
+          </TouchableOpacity>
+        </View>
 
-        <RecentTestItem
-          recordId="FT-2026-000184"
-          result="PRESUMPTIVE_POSITIVE"
-          time="22:41"
-          verified
-        />
-        <RecentTestItem
-          recordId="FT-2026-000183"
-          result="PRESUMPTIVE_NEGATIVE"
-          time="22:18"
-          verified
-        />
-        <RecentTestItem
-          recordId="FT-2026-000182"
-          result="INCONCLUSIVE"
-          time="21:55"
-          verified
-        />
+        {recentTests.map((item) => {
+          const dateObj = new Date(item.captured_at);
+          const time = !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '22:41';
+
+          return (
+            <RecentTestItem
+              key={item.record_id}
+              recordId={item.record_id}
+              result={item.result}
+              time={time}
+              verified={item.is_verified}
+              onPress={() => router.push(`/verify/${item.record_id}`)}
+            />
+          );
+        })}
       </View>
 
-      {/* Disclaimer — always visible */}
+      {/* Mandatory Disclaimer */}
       <View style={styles.disclaimer}>
         <Ionicons name="information-circle" size={16} color={Colors.warning} />
         <Text style={styles.disclaimerText}>{Config.disclaimer}</Text>
@@ -121,11 +153,11 @@ function WorkflowStep({
 }) {
   return (
     <View style={styles.workflowStep}>
-      <View style={styles.workflowStepNumber}>
-        <Text style={styles.workflowStepNumberText}>{number}</Text>
+      <View style={styles.stepNumber}>
+        <Text style={styles.stepNumberText}>{number}</Text>
       </View>
-      <Ionicons name={icon} size={18} color={Colors.textSecondary} />
-      <Text style={styles.workflowStepLabel}>{label}</Text>
+      <Ionicons name={icon} size={18} color={Colors.textSecondary} style={styles.stepIcon} />
+      <Text style={styles.stepLabel}>{label}</Text>
     </View>
   );
 }
@@ -135,11 +167,13 @@ function RecentTestItem({
   result,
   time,
   verified,
+  onPress,
 }: {
   recordId: string;
   result: string;
   time: string;
   verified: boolean;
+  onPress: () => void;
 }) {
   const resultColor =
     result === 'PRESUMPTIVE_POSITIVE'
@@ -149,30 +183,31 @@ function RecentTestItem({
         : Colors.warning;
 
   const resultLabel = result
-    .replace('PRESUMPTIVE_', 'Presumptive ')
+    .replace('PRESUMPTIVE_', '')
     .replace('_', ' ')
     .toLowerCase()
     .replace(/^\w/, (c) => c.toUpperCase());
 
   return (
-    <TouchableOpacity style={styles.recentItem} activeOpacity={0.7}>
-      <View style={styles.recentItemLeft}>
-        <Text style={styles.recentItemId}>{recordId}</Text>
-        <View style={styles.recentItemResultRow}>
-          <View style={[styles.resultDot, { backgroundColor: resultColor }]} />
-          <Text style={[styles.recentItemResult, { color: resultColor }]}>
-            {resultLabel}
-          </Text>
+    <TouchableOpacity style={styles.recentItem} onPress={onPress} activeOpacity={0.7}>
+      <View style={styles.recentLeft}>
+        <View style={[styles.resultIndicator, { backgroundColor: resultColor }]} />
+        <View>
+          <Text style={styles.recentRecordId}>{recordId}</Text>
+          <Text style={styles.recentTime}>{time} · OP-042</Text>
         </View>
       </View>
-      <View style={styles.recentItemRight}>
-        <Text style={styles.recentItemTime}>{time}</Text>
+      <View style={styles.recentRight}>
+        <Text style={[styles.recentResult, { color: resultColor }]}>
+          {resultLabel}
+        </Text>
         {verified && (
-          <View style={styles.verifiedBadge}>
-            <Ionicons name="checkmark" size={10} color={Colors.success} />
-            <Text style={styles.verifiedText}>VERIFIED</Text>
+          <View style={styles.verifiedTag}>
+            <Ionicons name="checkmark-circle" size={12} color={Colors.success} />
+            <Text style={styles.verifiedTagText}>SEALED</Text>
           </View>
         )}
+        <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
       </View>
     </TouchableOpacity>
   );
@@ -188,33 +223,49 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing['5xl'],
   },
   greeting: {
-    marginBottom: Spacing['2xl'],
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
   greetingLabel: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    fontWeight: FontWeight.regular,
+    fontSize: FontSize.xs,
+    color: Colors.textTertiary,
+    fontWeight: FontWeight.semibold,
+    letterSpacing: 1,
   },
   greetingName: {
     fontSize: FontSize['2xl'],
-    color: Colors.primary,
     fontWeight: FontWeight.bold,
-    marginTop: Spacing.xs,
+    color: Colors.primary,
+  },
+  agencyBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs,
+  },
+  agencyBadgeText: {
+    color: Colors.textInverse,
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.5,
   },
   newTestButton: {
-    backgroundColor: Colors.accent,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing['2xl'],
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
     ...Shadow.md,
   },
   newTestIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.md,
@@ -228,126 +279,170 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
   },
   newTestDescription: {
-    fontSize: FontSize.sm,
-    color: 'rgba(255,255,255,0.8)',
+    fontSize: FontSize.xs,
+    color: 'rgba(255, 255, 255, 0.7)',
     marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    ...Shadow.sm,
+  },
+  statValue: {
+    fontSize: FontSize.xl,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: Colors.textTertiary,
+    marginTop: 2,
+    fontWeight: FontWeight.medium,
   },
   workflowCard: {
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing['2xl'],
+    marginBottom: Spacing.lg,
     borderWidth: 1,
     borderColor: Colors.border,
+    ...Shadow.sm,
   },
   sectionTitle: {
-    fontSize: FontSize.sm,
+    fontSize: FontSize.xs,
     fontWeight: FontWeight.semibold,
     color: Colors.textTertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1.5,
     marginBottom: Spacing.md,
   },
   workflowStep: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
-  workflowStepNumber: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: Colors.accentLight,
+  stepNumber: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.sm,
   },
-  workflowStepNumberText: {
+  stepNumberText: {
     fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
-    color: Colors.accent,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
   },
-  workflowStepLabel: {
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    marginLeft: Spacing.sm,
+  stepIcon: {
+    marginRight: Spacing.sm,
+  },
+  stepLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.text,
   },
   quickActions: {
     flexDirection: 'row',
     gap: Spacing.md,
-    marginBottom: Spacing['2xl'],
+    marginBottom: Spacing.lg,
   },
   quickActionCard: {
     flex: 1,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
+    gap: Spacing.xs,
+    ...Shadow.sm,
   },
   quickActionLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
-    color: Colors.textPrimary,
-    marginTop: Spacing.sm,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    color: Colors.primary,
   },
   recentSection: {
-    marginBottom: Spacing['2xl'],
-  },
-  recentItem: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  recentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginBottom: Spacing.md,
   },
-  recentItemLeft: {
-    flex: 1,
-  },
-  recentItemId: {
-    fontSize: FontSize.sm,
+  viewAllText: {
+    fontSize: FontSize.xs,
+    color: Colors.accent,
     fontWeight: FontWeight.semibold,
-    color: Colors.primary,
-    fontFamily: 'monospace',
   },
-  recentItemResultRow: {
+  recentItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  recentLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    gap: Spacing.sm,
   },
-  resultDot: {
+  resultIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: 6,
   },
-  recentItemResult: {
+  recentRecordId: {
     fontSize: FontSize.sm,
-    fontWeight: FontWeight.medium,
+    fontWeight: FontWeight.bold,
+    color: Colors.primary,
+    fontFamily: 'monospace',
   },
-  recentItemRight: {
-    alignItems: 'flex-end',
-  },
-  recentItemTime: {
-    fontSize: FontSize.sm,
+  recentTime: {
+    fontSize: FontSize.xs,
     color: Colors.textTertiary,
   },
-  verifiedBadge: {
+  recentRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    gap: 3,
+    gap: Spacing.xs,
   },
-  verifiedText: {
+  recentResult: {
     fontSize: FontSize.xs,
-    fontWeight: FontWeight.semibold,
+    fontWeight: FontWeight.bold,
+    marginRight: 4,
+  },
+  verifiedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.successLight,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    gap: 2,
+  },
+  verifiedTagText: {
+    fontSize: 9,
+    fontWeight: FontWeight.bold,
     color: Colors.success,
-    letterSpacing: 0.5,
   },
   disclaimer: {
     flexDirection: 'row',
@@ -357,13 +452,12 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.warning,
+    borderColor: 'rgba(217, 119, 6, 0.2)',
   },
   disclaimerText: {
     flex: 1,
     fontSize: FontSize.xs,
-    color: Colors.warning,
-    fontWeight: FontWeight.medium,
+    color: Colors.textSecondary,
     lineHeight: 16,
   },
 });
