@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "FieldTest",
+    "slug": "fieldtest",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "fieldtest",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fieldtest.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#172033",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.fieldtest.app",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
