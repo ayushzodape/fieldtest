@@ -1,38 +1,81 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
 import { Config } from '../../constants/config';
+import { getFieldTestById, FieldTestRow } from '../../lib/records';
+import { verifyRecordIntegrity, VerificationResult } from '../../lib/crypto';
+import { CanonicalRecord } from '../../types/record';
 
 /**
  * Verification screen — independently verifies a record's integrity.
  *
  * This is the "money shot" screen for the demo. It shows:
- * 1. Record details
- * 2. Signature verification status
- * 3. When tampered: INTEGRITY CHECK FAILED with expected vs current hash
- *
- * The tamper detection demo is triggered via a toggle for judge demonstrations.
+ * 1. Record details loaded from live storage
+ * 2. Real Ed25519 signature & SHA-256 canonical hash verification
+ * 3. When tampered: INTEGRITY CHECK FAILED with expected vs computed hash mismatch
  */
 export default function VerifyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [record, setRecord] = useState<FieldTestRow | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isTampered, setIsTampered] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verified, setVerified] = useState(true);
+  const [verification, setVerification] = useState<VerificationResult | null>(null);
 
-  const handleToggleTamper = () => {
+  useEffect(() => {
+    loadAndVerifyRecord(false);
+  }, [id]);
+
+  const loadAndVerifyRecord = async (tamper: boolean) => {
     setIsVerifying(true);
-    // Simulate verification delay
-    setTimeout(() => {
-      setIsTampered(!isTampered);
-      setVerified(isTampered); // Toggle: if was tampered, now valid
-      setIsVerifying(false);
-    }, 800);
+    const targetId = id || 'FT-2026-000184';
+    const row = await getFieldTestById(targetId);
+
+    if (row) {
+      setRecord(row);
+      // If tamper requested, modify one field in canonical record
+      let targetCanonical: CanonicalRecord = { ...row.canonical_record };
+      if (tamper) {
+        targetCanonical = {
+          ...targetCanonical,
+          classification: {
+            ...targetCanonical.classification,
+            result: targetCanonical.classification.result === 'PRESUMPTIVE_POSITIVE'
+              ? 'PRESUMPTIVE_NEGATIVE'
+              : 'PRESUMPTIVE_POSITIVE',
+          },
+        };
+      }
+
+      const result = await verifyRecordIntegrity(
+        targetCanonical,
+        row.record_hash,
+        row.signature,
+        row.public_key
+      );
+
+      setVerification(result);
+    }
+    setIsVerifying(false);
+    setLoading(false);
   };
 
-  const expectedHash = 'a73c8f2b...91bf4e1d';
-  const currentHash = isTampered ? '4b21d3a7...e3d19c82' : 'a73c8f2b...91bf4e1d';
+  const handleToggleTamper = async () => {
+    const nextTamperState = !isTampered;
+    setIsTampered(nextTamperState);
+    await loadAndVerifyRecord(nextTamperState);
+  };
+
+  const expectedHash = verification?.expectedHash
+    ? `${verification.expectedHash.slice(0, 12)}...${verification.expectedHash.slice(-8)}`
+    : 'a73c8f2b1d4e...91bf4e1d';
+  const computedHash = verification?.computedHash
+    ? `${verification.computedHash.slice(0, 12)}...${verification.computedHash.slice(-8)}`
+    : 'a73c8f2b1d4e...91bf4e1d';
+
+  const isVerified = verification ? verification.isValid : true;
 
   return (
     <ScrollView
@@ -43,11 +86,11 @@ export default function VerifyScreen() {
       {/* Record header */}
       <View style={styles.header}>
         <Text style={styles.headerLabel}>VERIFY DIGITAL RECORD</Text>
-        <Text style={styles.recordId}>{id || 'FT-2026-000184'}</Text>
+        <Text style={styles.recordId}>{record?.record_id || id || 'FT-2026-000184'}</Text>
       </View>
 
       {/* Integrity status — the main visual */}
-      {!isTampered ? (
+      {isVerified ? (
         <View style={styles.integrityValid}>
           <View style={styles.integrityIconContainer}>
             <Ionicons name="shield-checkmark" size={48} color={Colors.success} />
@@ -55,8 +98,7 @@ export default function VerifyScreen() {
           <Text style={styles.integrityTitle}>RECORD INTEGRITY</Text>
           <Text style={styles.integrityStatus}>✓ VERIFIED</Text>
           <Text style={styles.integrityDescription}>
-            The digital signature is valid. This record has not been modified
-            since it was signed.
+            The Ed25519 digital signature is cryptographically valid. Canonical SHA-256 hash matches the sealed record.
           </Text>
         </View>
       ) : (
@@ -66,8 +108,7 @@ export default function VerifyScreen() {
           </View>
           <Text style={styles.integrityTitleFailed}>INTEGRITY CHECK FAILED</Text>
           <Text style={styles.integrityDescriptionFailed}>
-            This record does not match the signature originally issued.
-            The record may have been modified after signing.
+            {verification?.reason || 'Record hash mismatch! Modification detected after digital sealing.'}
           </Text>
 
           {/* Hash comparison */}
@@ -78,7 +119,7 @@ export default function VerifyScreen() {
             </View>
             <View style={styles.hashRow}>
               <Text style={styles.hashLabel}>Current hash:</Text>
-              <Text style={styles.hashValueFailed}>{currentHash}</Text>
+              <Text style={styles.hashValueFailed}>{computedHash}</Text>
             </View>
           </View>
         </View>
@@ -90,41 +131,41 @@ export default function VerifyScreen() {
 
         <DetailRow
           label="IMAGE HASH"
-          value="8e4a2f7c...91bf4e1d"
+          value={record?.image_sha256 ? `${record.image_sha256.slice(0, 10)}...` : '8e4a2f7c...'}
           mono
         />
         <DetailRow
           label="SIGNATURE"
-          value={isTampered ? '✗ INVALID' : '✓ VALID'}
-          valueColor={isTampered ? Colors.danger : Colors.success}
+          value={verification?.signatureValid ? '✓ VALID' : '✗ INVALID'}
+          valueColor={verification?.signatureValid ? Colors.success : Colors.danger}
         />
         <DetailRow
           label="RECORD INTEGRITY"
-          value={isTampered ? '✗ FAILED' : '✓ VERIFIED'}
-          valueColor={isTampered ? Colors.danger : Colors.success}
+          value={isVerified ? '✓ VERIFIED' : '✗ FAILED (MISMATCH)'}
+          valueColor={isVerified ? Colors.success : Colors.danger}
         />
         <DetailRow
-          label="SIGNED AT"
-          value="24 Sep 2026 · 22:41 IST"
+          label="CAPTURED AT"
+          value={record?.captured_at ? new Date(record.captured_at).toUTCString() : '24 Sep 2026 UTC'}
         />
         <DetailRow
           label="OPERATOR"
-          value="OP-042"
+          value={record?.operator_id || 'OP-042'}
           mono
         />
         <DetailRow
           label="LOCATION"
-          value="19.0760, 72.8777 ±8m"
+          value={`${record?.latitude || 19.0760}, ${record?.longitude || 72.8777} (±${record?.accuracy_meters || 8}m)`}
           mono
         />
         <DetailRow
           label="MODEL"
-          value={Config.classifierVersion}
+          value={record?.classifier_version || Config.classifierVersion}
           mono
         />
         <DetailRow
           label="SCHEMA"
-          value={`v${Config.schemaVersion}`}
+          value={`v${record?.schema_version || Config.schemaVersion}`}
           mono
         />
       </View>

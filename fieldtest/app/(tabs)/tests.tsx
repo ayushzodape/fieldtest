@@ -1,65 +1,12 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight } from '../../constants/colors';
 import { Config } from '../../constants/config';
+import { getFieldTests, FieldTestRow } from '../../lib/records';
 
 type FilterType = 'all' | 'positive' | 'negative' | 'inconclusive';
-
-// Demo data — will be replaced with Supabase queries
-const DEMO_RECORDS = [
-  {
-    id: 'FT-2026-000184',
-    result: 'PRESUMPTIVE_POSITIVE' as const,
-    confidence: 0.94,
-    date: '24 Sep 2026',
-    time: '22:41',
-    operatorCode: 'OP-042',
-    location: 'Mumbai',
-    signatureValid: true,
-  },
-  {
-    id: 'FT-2026-000183',
-    result: 'PRESUMPTIVE_NEGATIVE' as const,
-    confidence: 0.91,
-    date: '24 Sep 2026',
-    time: '22:18',
-    operatorCode: 'OP-042',
-    location: 'Mumbai',
-    signatureValid: true,
-  },
-  {
-    id: 'FT-2026-000182',
-    result: 'INCONCLUSIVE' as const,
-    confidence: 0.51,
-    date: '24 Sep 2026',
-    time: '21:55',
-    operatorCode: 'OP-017',
-    location: 'Mumbai',
-    signatureValid: true,
-  },
-  {
-    id: 'FT-2026-000181',
-    result: 'PRESUMPTIVE_NEGATIVE' as const,
-    confidence: 0.96,
-    date: '24 Sep 2026',
-    time: '21:30',
-    operatorCode: 'OP-042',
-    location: 'Pune',
-    signatureValid: true,
-  },
-  {
-    id: 'FT-2026-000180',
-    result: 'PRESUMPTIVE_POSITIVE' as const,
-    confidence: 0.87,
-    date: '24 Sep 2026',
-    time: '20:15',
-    operatorCode: 'OP-042',
-    location: 'Mumbai',
-    signatureValid: true,
-  },
-];
 
 const FILTERS: { key: FilterType; label: string }[] = [
   { key: 'all', label: 'All Results' },
@@ -70,17 +17,30 @@ const FILTERS: { key: FilterType; label: string }[] = [
 
 export default function TestsScreen() {
   const router = useRouter();
+  const [records, setRecords] = useState<FieldTestRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
-  const filteredRecords = DEMO_RECORDS.filter((record) => {
+  useEffect(() => {
+    loadRecords();
+  }, []);
+
+  const loadRecords = async () => {
+    setLoading(true);
+    const data = await getFieldTests();
+    setRecords(data);
+    setLoading(false);
+  };
+
+  const filteredRecords = records.filter((record) => {
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       if (
-        !record.id.toLowerCase().includes(query) &&
-        !record.operatorCode.toLowerCase().includes(query) &&
-        !record.location.toLowerCase().includes(query)
+        !record.record_id.toLowerCase().includes(query) &&
+        !record.operator_id.toLowerCase().includes(query) &&
+        !record.result.toLowerCase().includes(query)
       ) {
         return false;
       }
@@ -151,16 +111,18 @@ export default function TestsScreen() {
       >
         {filteredRecords.map((record) => (
           <RecordCard
-            key={record.id}
+            key={record.record_id}
             record={record}
-            onPress={() => router.push(`/verify/${record.id}`)}
+            onPress={() => router.push(`/verify/${record.record_id}`)}
           />
         ))}
 
         {filteredRecords.length === 0 && (
           <View style={styles.emptyState}>
             <Ionicons name="document-text-outline" size={48} color={Colors.textTertiary} />
-            <Text style={styles.emptyStateText}>No records found</Text>
+            <Text style={styles.emptyStateText}>
+              {loading ? 'Loading field test records...' : 'No records found'}
+            </Text>
           </View>
         )}
 
@@ -178,7 +140,7 @@ function RecordCard({
   record,
   onPress,
 }: {
-  record: (typeof DEMO_RECORDS)[0];
+  record: FieldTestRow;
   onPress: () => void;
 }) {
   const resultColor =
@@ -201,10 +163,22 @@ function RecordCard({
     .toLowerCase()
     .replace(/^\w/, (c) => c.toUpperCase());
 
+  const dateObj = new Date(record.captured_at);
+  const dateFormatted = !isNaN(dateObj.getTime())
+    ? dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Unknown Date';
+  const timeFormatted = !isNaN(dateObj.getTime())
+    ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const locationText = record.latitude && record.longitude
+    ? `${record.latitude.toFixed(3)}, ${record.longitude.toFixed(3)} (±${record.accuracy_meters || 8}m)`
+    : 'GPS Logged';
+
   return (
     <TouchableOpacity style={styles.recordCard} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.recordHeader}>
-        <Text style={styles.recordId}>{record.id}</Text>
+        <Text style={styles.recordId}>{record.record_id}</Text>
         <View style={[styles.resultBadge, { backgroundColor: resultBgColor }]}>
           <View style={[styles.resultDot, { backgroundColor: resultColor }]} />
           <Text style={[styles.resultBadgeText, { color: resultColor }]}>
@@ -217,33 +191,33 @@ function RecordCard({
         <View style={styles.recordMetaItem}>
           <Ionicons name="calendar-outline" size={14} color={Colors.textTertiary} />
           <Text style={styles.recordMetaText}>
-            {record.date} · {record.time}
+            {dateFormatted} {timeFormatted ? `· ${timeFormatted}` : ''}
           </Text>
         </View>
         <View style={styles.recordMetaItem}>
           <Ionicons name="person-outline" size={14} color={Colors.textTertiary} />
-          <Text style={styles.recordMetaText}>{record.operatorCode}</Text>
+          <Text style={styles.recordMetaText}>{record.operator_id}</Text>
         </View>
         <View style={styles.recordMetaItem}>
           <Ionicons name="location-outline" size={14} color={Colors.textTertiary} />
-          <Text style={styles.recordMetaText}>{record.location}</Text>
+          <Text style={styles.recordMetaText}>{locationText}</Text>
         </View>
       </View>
 
       <View style={styles.recordFooter}>
         <View style={styles.signatureStatus}>
           <Ionicons
-            name={record.signatureValid ? 'checkmark-circle' : 'alert-circle'}
+            name={record.is_verified ? 'checkmark-circle' : 'alert-circle'}
             size={14}
-            color={record.signatureValid ? Colors.success : Colors.danger}
+            color={record.is_verified ? Colors.success : Colors.danger}
           />
           <Text
             style={[
               styles.signatureText,
-              { color: record.signatureValid ? Colors.success : Colors.danger },
+              { color: record.is_verified ? Colors.success : Colors.danger },
             ]}
           >
-            Signature {record.signatureValid ? 'VALID' : 'INVALID'}
+            Signature {record.is_verified ? 'VALID' : 'INVALID'}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
