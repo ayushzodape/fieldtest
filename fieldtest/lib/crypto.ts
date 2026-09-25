@@ -32,21 +32,45 @@ export function hexToBytes(hex: string): Uint8Array {
 }
 
 /**
- * Deterministic Canonical JSON Serialization
- * Sorts object keys recursively and strips non-essential whitespace.
+ * RFC 8785 Compliant JSON Canonicalization Scheme (JCS)
+ * Deterministically serializes values with:
+ * - Omission of undefined properties in objects
+ * - undefined in arrays converted to null
+ * - Objects with .toJSON() method properly serialized (e.g. Date)
+ * - -0 serialized as 0, validation of finite numbers
+ * - Lexicographical UTF-16 code-unit sorting of object keys
+ * - No insignificant whitespace
  */
 export function canonicalizeJson(obj: unknown): string {
+  if (obj === undefined) {
+    return '';
+  }
+
   if (obj === null || typeof obj !== 'object') {
+    if (typeof obj === 'number') {
+      if (!Number.isFinite(obj)) {
+        throw new TypeError('Cannot canonicalize non-finite numbers (NaN, Infinity)');
+      }
+      return Object.is(obj, -0) ? '0' : obj.toString();
+    }
     return JSON.stringify(obj);
   }
 
+  // Handle objects with toJSON (e.g. Date)
+  if (typeof (obj as { toJSON?: () => unknown }).toJSON === 'function') {
+    return canonicalizeJson((obj as { toJSON: () => unknown }).toJSON());
+  }
+
   if (Array.isArray(obj)) {
-    return '[' + obj.map((item) => canonicalizeJson(item)).join(',') + ']';
+    return '[' + obj.map((item) => (item === undefined ? 'null' : canonicalizeJson(item))).join(',') + ']';
   }
 
   const record = obj as Record<string, unknown>;
-  const sortedKeys = Object.keys(record).sort();
-  const pairs = sortedKeys.map((key) => {
+  const validKeys = Object.keys(record)
+    .filter((k) => record[k] !== undefined && typeof record[k] !== 'function' && typeof record[k] !== 'symbol')
+    .sort();
+
+  const pairs = validKeys.map((key) => {
     return JSON.stringify(key) + ':' + canonicalizeJson(record[key]);
   });
 
@@ -152,5 +176,33 @@ export async function verifyRecordIntegrity(
     expectedHash,
     computedHash,
     reason,
+  };
+}
+
+/**
+ * Temporal integrity validator (NIST SP 800-86 / RFC 3161 clock drift check)
+ * Checks whether device clock has drifted beyond allowable tolerance (default: 120s)
+ */
+export function validateTimestampSkew(
+  clientIso: string,
+  trustedIso: string = new Date().toISOString(),
+  maxSkewSeconds = 120
+): { isValid: boolean; skewSeconds: number; reason: string } {
+  const clientTime = new Date(clientIso).getTime();
+  const trustedTime = new Date(trustedIso).getTime();
+
+  if (isNaN(clientTime) || isNaN(trustedTime)) {
+    return { isValid: false, skewSeconds: 0, reason: 'Invalid ISO-8601 timestamp string' };
+  }
+
+  const skewSeconds = Math.abs(clientTime - trustedTime) / 1000;
+  const isValid = skewSeconds <= maxSkewSeconds;
+
+  return {
+    isValid,
+    skewSeconds,
+    reason: isValid
+      ? 'Timestamp within trusted tolerance'
+      : `Clock skew violation! Drift of ${Math.round(skewSeconds)}s exceeds maximum allowed threshold of ${maxSkewSeconds}s.`,
   };
 }

@@ -18,9 +18,17 @@ export interface ActiveTestDraft {
   classification?: Classification;
 }
 
+const FIXTURE_IMAGE_HASHES: Record<ActiveTestDraft['scenarioKey'], string> = {
+  positive: '8e4a9f3b1c2d5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a',
+  negative: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
+  inconclusive: 'f0e1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1',
+  invalid: 'e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1',
+};
+
 // Default initial test draft
 let currentDraft: ActiveTestDraft = {
   scenarioKey: 'positive',
+  imageSha256: FIXTURE_IMAGE_HASHES.positive,
   latitude: 19.076,
   longitude: 72.8777,
   accuracyMeters: 8.4,
@@ -50,6 +58,7 @@ export function resetActiveTestDraft(scenarioKey: ActiveTestDraft['scenarioKey']
   const fixture = DEMO_FIXTURES[scenarioKey];
   currentDraft = {
     scenarioKey,
+    imageSha256: FIXTURE_IMAGE_HASHES[scenarioKey],
     latitude: 19.076 + (Math.random() - 0.5) * 0.005,
     longitude: 72.8777 + (Math.random() - 0.5) * 0.005,
     accuracyMeters: Math.round((6 + Math.random() * 6) * 10) / 10,

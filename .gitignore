@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+fieldtest/node_modules/
+
+# Environment files & secrets
+.env
+.env*.local
+*.pem
+*.key
+
+# Expo & Build artifacts
+.expo/
+fieldtest/.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Debug & Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS generated files
+.DS_Store
+Thumbs.db

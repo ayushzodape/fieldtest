@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.operators (
 CREATE TABLE IF NOT EXISTS public.field_tests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     record_id TEXT UNIQUE NOT NULL, -- e.g. "FT-2026-000184"
-    operator_id TEXT NOT NULL,      -- references operators.badge_number
+    operator_id TEXT NOT NULL REFERENCES public.operators(badge_number),
     captured_at TIMESTAMPTZ NOT NULL,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
@@ -60,9 +60,9 @@ CREATE INDEX IF NOT EXISTS idx_test_images_test_id ON public.test_images(test_id
 -- 5. Audit Events Table (Immutable Chain of Custody)
 CREATE TABLE IF NOT EXISTS public.audit_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    record_id TEXT NOT NULL,
+    record_id TEXT NOT NULL REFERENCES public.field_tests(record_id),
     event_type TEXT NOT NULL CHECK (event_type IN ('RECORD_CREATED', 'RECORD_SEALED', 'RECORD_VERIFIED', 'TAMPER_DETECTED', 'RECORD_EXPORTED')),
-    operator_id TEXT,
+    operator_id TEXT REFERENCES public.operators(badge_number),
     details JSONB,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -94,11 +94,13 @@ CREATE POLICY "Field tests are viewable for verification"
     TO anon, authenticated
     USING (true);
 
--- Anyone (authenticated operators or demo client) can insert a test
-CREATE POLICY "Operators can insert field tests"
+-- Only authenticated operators matching active badge records can insert tests
+CREATE POLICY "Authenticated operators can insert field tests"
     ON public.field_tests FOR INSERT
-    TO anon, authenticated
-    WITH CHECK (true);
+    TO authenticated
+    WITH CHECK (
+        auth.uid() IN (SELECT id FROM public.operators WHERE badge_number = operator_id)
+    );
 
 -- Immutable records: No one may UPDATE or DELETE existing field test records
 -- (Preserves tamper-evidence and chain of custody)
@@ -112,16 +114,46 @@ CREATE POLICY "Field tests are immutable (no deletes)"
     TO authenticated, anon
     USING (false);
 
+-- Test Images policies
+CREATE POLICY "Test images are viewable for verification"
+    ON public.test_images FOR SELECT
+    TO anon, authenticated
+    USING (true);
+
+CREATE POLICY "Authenticated operators can insert test images"
+    ON public.test_images FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        auth.uid() IN (
+            SELECT o.id FROM public.operators o
+            JOIN public.field_tests ft ON ft.operator_id = o.badge_number
+            WHERE ft.id = test_id
+        )
+    );
+
+CREATE POLICY "Test images are immutable (no updates)"
+    ON public.test_images FOR UPDATE
+    TO authenticated, anon
+    USING (false);
+
+CREATE POLICY "Test images are immutable (no deletes)"
+    ON public.test_images FOR DELETE
+    TO authenticated, anon
+    USING (false);
+
 -- Audit Events policies (Append-only)
 CREATE POLICY "Audit events viewable by authenticated and anon"
     ON public.audit_events FOR SELECT
     TO anon, authenticated
     USING (true);
 
-CREATE POLICY "Audit events can be inserted"
+-- Only authenticated operators can append audit events
+CREATE POLICY "Authenticated operators can insert audit events"
     ON public.audit_events FOR INSERT
-    TO authenticated, anon
-    WITH CHECK (true);
+    TO authenticated
+    WITH CHECK (
+        auth.uid() IN (SELECT id FROM public.operators WHERE badge_number = operator_id)
+    );
 
 CREATE POLICY "Audit events cannot be modified"
     ON public.audit_events FOR UPDATE
@@ -138,7 +170,7 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('test-images', 'test-images', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Storage policies: Public read, authenticated upload
+-- Storage policies: Public read, authenticated upload, NO DELETIONS/UPDATES
 CREATE POLICY "Test images are publicly accessible"
     ON storage.objects FOR SELECT
     TO anon, authenticated
@@ -148,3 +180,13 @@ CREATE POLICY "Authenticated users can upload test images"
     ON storage.objects FOR INSERT
     TO authenticated
     WITH CHECK (bucket_id = 'test-images');
+
+CREATE POLICY "Test images cannot be deleted"
+    ON storage.objects FOR DELETE
+    TO authenticated, anon
+    USING (false);
+
+CREATE POLICY "Test images cannot be modified"
+    ON storage.objects FOR UPDATE
+    TO authenticated, anon
+    USING (false);

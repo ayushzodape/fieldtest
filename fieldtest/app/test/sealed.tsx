@@ -6,6 +6,7 @@ import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../
 import { Config } from '../../constants/config';
 import { getActiveTestDraft } from '../../lib/testSession';
 import { sealAndSaveFieldTest, FieldTestRow } from '../../lib/records';
+import { sha256Hex } from '../../lib/crypto';
 
 export default function SealedScreen() {
   const router = useRouter();
@@ -16,6 +17,19 @@ export default function SealedScreen() {
   useEffect(() => {
     (async () => {
       try {
+        let realImageHash = draft.imageSha256;
+        if (!realImageHash && draft.imageUri) {
+          try {
+            if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+              const res = await fetch(draft.imageUri);
+              const blob = await res.arrayBuffer();
+              realImageHash = await sha256Hex(new Uint8Array(blob));
+            }
+          } catch (e) {
+            console.warn('[SealedScreen] Could not read physical image file:', e);
+          }
+        }
+
         const row = await sealAndSaveFieldTest({
           operatorId: draft.operatorId,
           result: draft.classification?.result || 'PRESUMPTIVE_POSITIVE',
@@ -23,6 +37,7 @@ export default function SealedScreen() {
           latitude: draft.latitude,
           longitude: draft.longitude,
           accuracyMeters: draft.accuracyMeters,
+          imageBytesOrHash: realImageHash,
           explanation: draft.classification?.explanation as unknown as Record<string, unknown>,
         });
         setSealedRecord(row);

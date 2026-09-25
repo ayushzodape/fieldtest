@@ -1,0 +1,503 @@
+# FieldTest — Production Readiness Gap Analysis
+
+**Document ID:** FT-PROD-2026-001  
+**Last Updated:** September 25, 2026  
+**Scope:** Everything required to take FieldTest from hackathon prototype (Score: 82/100) to a production-deployable forensic evidence system that can survive court cross-examination and ISO 17025 accreditation review.
+
+---
+
+## Table of Contents
+
+1. [The Synthetic Data Problem](#1-the-synthetic-data-problem)
+2. [Tamper Detection: Beyond the Toggle Button](#2-tamper-detection-beyond-the-toggle-button)
+3. [Production Readiness: The Complete Gap Matrix](#3-production-readiness-the-complete-gap-matrix)
+4. [Production Architecture Diagram](#4-production-architecture-diagram)
+5. [Prioritized Implementation Roadmap](#5-prioritized-implementation-roadmap)
+
+---
+
+## 1. The Synthetic Data Problem
+
+### What We Have Now (Prototype)
+
+The entire classification pipeline currently runs on **4 hardcoded RGB tuples** in `DEMO_FIXTURES`:
+
+| Scenario | RGB Values | Source | Validated Against Real Reagent? |
+|---|---|---|---|
+| Positive | `(68, 24, 92)` "Deep violet" | Hand-picked by developer | **No** |
+| Negative | `(232, 228, 216)` "Pale straw" | Hand-picked by developer | **No** |
+| Inconclusive | `(185, 165, 180)` "Faint grey-violet" | Hand-picked by developer | **No** |
+| Invalid | `(255, 255, 255)` "Blown white" | Hand-picked by developer | **No** |
+
+These values were chosen to produce aesthetically sensible demo results. They have **zero scientific basis**. No Marquis reagent was ever photographed. No reference card was ever measured. The RGB values are the developer's best guess at what heroin-positive violet "probably looks like."
+
+### Why This Is a Problem
+
+1. **Decision boundaries are uncalibrated.** The thresholds (ΔE ≤ 5.0 for negative, ΔE ≥ 15.0 for positive) were set by intuition, not by ROC analysis on labeled data. We have no sensitivity, specificity, PPV, or NPV metrics.
+
+2. **No inter-device variability.** An iPhone 15 Pro, Samsung Galaxy A14, and Xiaomi Redmi Note 12 will photograph the same reagent vial with dramatically different auto-exposure, white balance, tone mapping, and HDR processing. Our linear sRGB normalization compensates for white-point shift, but non-linear camera ISP tone curves (S-curves, local contrast enhancement) distort chromaticity in ways simple scaling cannot fix.
+
+3. **No environmental variability.** The same reagent under fluorescent office lighting (CCT ~4000K), outdoor daylight (CCT ~6500K), and sodium street lamps (CCT ~2200K) produces wildly different sensor readings. Our reference card normalization helps, but we've never measured how much.
+
+4. **The image hash is synthetic.** In `records.ts:228`, when no real image is provided, the system hashes the literal string `"image_bytes_${recordId}_${timestamp}"`. This means the `imageSha256` in every demo record has zero binding to any physical photograph.
+
+### What Production Requires
+
+#### Phase 1: Laboratory Calibration Dataset (Minimum Viable Validation)
+
+| Requirement | Specification | Minimum Count |
+|---|---|---|
+| Positive samples | Marquis reagent + morphine/heroin/codeine standard at known concentrations | 50 photographs |
+| Negative samples | Marquis reagent + inert substances (sugar, flour, baking soda, aspirin) | 50 photographs |
+| Adulterant controls | Marquis reagent + common false-positive candidates (coffee, tea, chocolate, cough syrup, plant matter) | 30 photographs |
+| Environmental variety | Each sample under 3 lighting conditions (daylight, fluorescent, LED) | 3× multiplier |
+| Device variety | Each sample on ≥3 different phone models (budget, mid, flagship) | 3× multiplier |
+| Reference card | X-Rite ColorChecker Passport or SpyderCHECKR 24-patch target | 1 physical card |
+| Ground truth labels | Laboratory-confirmed GC-MS results for every sample | 100% coverage |
+
+**Total minimum dataset size:** ~390 photographs with paired ground truth.
+
+#### Phase 2: Statistical Validation Metrics
+
+Before any production deployment, we must publish:
+
+```
+Metric                   Required Threshold    How Computed
+──────────────────────────────────────────────────────────────
+Sensitivity (TPR)        ≥ 0.90                TP / (TP + FN)
+Specificity (TNR)        ≥ 0.95                TN / (TN + FP)
+PPV (Precision)          ≥ 0.85                TP / (TP + FP)
+NPV                      ≥ 0.95                TN / (TN + FN)
+INCONCLUSIVE rate        ≤ 0.20                INC / Total
+Cohen's Kappa            ≥ 0.80                Inter-rater agreement vs. GC-MS
+ROC-AUC                  ≥ 0.92                Area under ROC curve
+```
+
+These metrics must be computed via **5-fold cross-validation** on the calibration dataset, never on the same data used to tune the ΔE thresholds.
+
+#### Phase 3: Threshold Optimization
+
+The current thresholds (5.0 / 15.0) were set by intuition. In production:
+
+1. Collect the full calibration dataset with GC-MS ground truth.
+2. Compute ΔE_baseline and ΔE_target for every sample.
+3. Plot the 2D scatter: X = ΔE_baseline, Y = ΔE_target, colored by ground truth.
+4. Fit the optimal decision boundary via logistic regression or SVM on the 2D feature space.
+5. Select operating point on ROC curve that maximizes specificity (minimize false accusations) while maintaining ≥90% sensitivity.
+6. Publish the chosen thresholds, ROC curve, and confusion matrix as `docs/VALIDATION_REPORT.md`.
+
+#### Phase 4: Ongoing Calibration
+
+- Re-validate whenever `classifierVersion` is bumped.
+- Track classifier drift via A/B split between old and new versions.
+- Maintain a "challenge panel" of known-difficult samples for regression testing.
+- Annual re-certification with fresh laboratory samples.
+
+---
+
+## 2. Tamper Detection: Beyond the Toggle Button
+
+### What We Have Now
+
+The current tamper demonstration in `verify/[id].tsx` does exactly one thing:
+
+```typescript
+// Line 40-49: Flip the classification result
+if (tamper) {
+  targetCanonical = {
+    ...targetCanonical,
+    classification: {
+      ...targetCanonical.classification,
+      result: targetCanonical.classification.result === 'PRESUMPTIVE_POSITIVE'
+        ? 'PRESUMPTIVE_NEGATIVE'
+        : 'PRESUMPTIVE_POSITIVE',
+    },
+  };
+}
+```
+
+This is a valid demonstration, but it's the **only** tamper scenario, and it's presented as a toggle button within the app itself. A skeptical judge might ask: "Is this just a UI animation, or is the cryptography actually running?"
+
+### Better Tamper Demonstration Approaches
+
+#### Approach 1: Multi-Field Tamper Selector (Recommended for Demo)
+
+Instead of a single toggle button, present a picker that lets the judge choose **which field** to tamper with. This proves the system detects modification to any part of the record, not just the classification.
+
+```
+┌─────────────────────────────────────────────┐
+│  TAMPER SIMULATION                          │
+│                                             │
+│  Select a field to modify:                  │
+│                                             │
+│  ○ Classification (POSITIVE → NEGATIVE)     │
+│  ○ Confidence (0.94 → 0.95)                │
+│  ○ Timestamp (shift by 1 second)            │
+│  ○ GPS Latitude (nudge by 0.001°)           │
+│  ○ Operator ID (OP-042 → OP-999)            │
+│  ○ Image Hash (swap last 2 digits)          │
+│                                             │
+│  [ Apply Tamper & Re-Verify ]               │
+│                                             │
+│  This demonstrates that modifying ANY       │
+│  single field — even a 1-digit confidence   │
+│  change — produces a completely different    │
+│  SHA-256 hash and invalidates the Ed25519   │
+│  digital signature.                         │
+└─────────────────────────────────────────────┘
+```
+
+**Why this is more powerful:** A judge watching the confidence change from 0.94 to 0.95 — a change so small it might seem "harmless" — and then seeing the entire SHA-256 hash explode into a completely different 64-character string is viscerally convincing. It demonstrates the avalanche property of SHA-256 without requiring the judge to understand cryptography.
+
+#### Approach 2: External Cross-Device Verification
+
+The strongest possible tamper demonstration does not use the app at all:
+
+1. **Seal a record** on Phone A → show green shield ✓ VERIFIED.
+2. **Export the canonical JSON** (via share sheet, QR code, or clipboard).
+3. **Open a standalone web verification page** on a laptop or Phone B.
+4. **Paste the canonical JSON + signature + public key** into the web verifier.
+5. **Web verifier independently computes SHA-256 and checks Ed25519** → shows ✓ MATCH.
+6. **Modify one character** in the pasted JSON → re-verify → shows ✗ MISMATCH with hash comparison.
+
+This proves:
+- The verification is **not** a UI animation — it runs on a completely separate device.
+- The cryptographic binding is **portable** — any device with TweetNaCl can verify.
+- The record is **self-authenticating** — it doesn't need the FieldTest app to verify.
+
+#### Approach 3: QR Code Verification Flow
+
+1. Sealed record screen generates a QR code containing:
+   ```json
+   {
+     "recordId": "FT-2026-000184",
+     "recordHash": "5afcb0b...",
+     "signature": "3bac553...",
+     "publicKey": "8227260...",
+     "verifyUrl": "https://fieldtest.app/verify/FT-2026-000184"
+   }
+   ```
+2. A judge scans the QR code with their own phone's camera.
+3. The browser opens a static verification page that:
+   - Downloads the canonical record from Supabase.
+   - Recomputes SHA-256 locally in the browser.
+   - Verifies Ed25519 signature using a JavaScript library.
+   - Displays VERIFIED or FAILED with hash comparison.
+
+**Why this matters for court:** The judge performed the verification themselves, on their own device, without installing any app. This satisfies FRE 901(b)(9) — self-authenticating electronic records.
+
+#### Approach 4: Database-Level Tamper Detection (For Technical Judges)
+
+1. Open the Supabase Dashboard (or a read-only admin view).
+2. Show the `field_tests` table row for `FT-2026-000184`.
+3. Attempt to modify the `result` column from `PRESUMPTIVE_POSITIVE` to `PRESUMPTIVE_NEGATIVE`.
+4. RLS policy blocks the UPDATE → show the `USING (false)` denial.
+5. Even if an admin bypasses RLS (e.g., service role key), the stored `record_hash` and `signature` no longer match the modified row → verification fails.
+
+This demonstrates **defense in depth**: RLS prevents modification, and cryptography detects it even if RLS is bypassed.
+
+#### Approach 5: Audit Trail Hash Chain (Advanced)
+
+Each audit event's hash is computed over the previous event's hash, forming a linked chain:
+
+```
+Event 1: RECORD_SEALED
+  hash_1 = SHA-256(event_1_data)
+
+Event 2: RECORD_VERIFIED  
+  hash_2 = SHA-256(hash_1 + event_2_data)
+
+Event 3: TAMPER_DETECTED
+  hash_3 = SHA-256(hash_2 + event_3_data)
+```
+
+If an attacker deletes or modifies Event 2, the chain breaks at Event 3 because `hash_3` depends on `hash_2`. This provides backward integrity similar to a blockchain's hash chain without the overhead of consensus.
+
+---
+
+## 3. Production Readiness: The Complete Gap Matrix
+
+### Layer 1: Camera & Image Pipeline
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Camera integration | Simulated (color swatch in dark rectangle) | Real `expo-camera` with live viewfinder, autofocus lock, and capture | HIGH |
+| Reference card detection | Hardcoded boolean (`referenceCardDetected: true`) | OpenCV/ONNX contour detection of known card geometry | HIGH |
+| Test region segmentation | Hardcoded boolean (`testRegionDetected: true`) | Color-based region extraction from captured image | HIGH |
+| Focus quality measurement | Hardcoded boolean | Laplacian variance computation on captured frame | MEDIUM |
+| Lighting quality assessment | Hardcoded string (`'GOOD'`) | Reference card patch luminance analysis vs. expected range | MEDIUM |
+| Image byte hashing | Hashes placeholder string | `expo-file-system` → read raw JPEG bytes → SHA-256 | LOW |
+| EXIF metadata | Not handled | Strip GPS/device metadata from stored image (privacy) | LOW |
+| HDR detection | Not handled | Detect and disable HDR auto-enhancement before capture | MEDIUM |
+
+### Layer 2: Classifier Calibration
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Training data | 4 hand-picked RGB tuples | ≥390 laboratory-validated photographs | HIGH |
+| Decision boundaries | Intuitive thresholds (5.0 / 15.0 / 14.0) | ROC-optimized thresholds from labeled dataset | MEDIUM |
+| Color metric | CIEDE2000 (correctly implemented) | ✅ Already production-grade | DONE |
+| White-point normalization | Linear sRGB chromatic adaptation | ✅ Already correct | DONE |
+| Two-vector classification | Baseline departure + target convergence | ✅ Already implemented | DONE |
+| Multi-kit support | Marquis only | Calibration profiles for Mecke, Mandelin, Scott, Duquenois-Levine | HIGH |
+| Validation report | None | Published sensitivity, specificity, PPV, NPV, ROC-AUC, confusion matrix | MEDIUM |
+| Version regression tests | None | Automated test suite comparing new vs. old classifier on challenge panel | MEDIUM |
+
+### Layer 3: Cryptographic Infrastructure
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Signing key location | `DEMO_SIGNER.secretKey` in client bundle (fallback) | HSM / Cloud KMS (AWS KMS, Azure Key Vault, GCP Cloud KMS) | HIGH |
+| Server-side signing | Edge Function call with fallback | Mandatory server-side signing with no client fallback | MEDIUM |
+| Key rotation | No rotation policy | Annual key rotation with backward verification support | MEDIUM |
+| Certificate chain | Single static public key | X.509 certificate chain with root CA, intermediate, and signing cert | HIGH |
+| Certificate pinning | Not implemented | Pin server certificate in mobile app to prevent MITM | MEDIUM |
+| JSON canonicalization | RFC 8785 compliant | ✅ Already production-grade | DONE |
+| SHA-256 implementation | Web Crypto API | ✅ Already production-grade | DONE |
+| Ed25519 implementation | TweetNaCl (battle-tested) | ✅ Already production-grade | DONE |
+| Offline signing queue | Falls back to client key | Queue unsigned records locally, sign when connectivity restored | MEDIUM |
+
+### Layer 4: Temporal & Geospatial Integrity
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Timestamp source | `new Date().toISOString()` (device clock) | Dual timestamp: `deviceReportedAt` + `serverReceivedAt` | MEDIUM |
+| Clock skew detection | Not implemented | Reject records where device-server skew > 120 seconds | LOW |
+| Trusted timestamping | Not implemented | RFC 3161 TSA integration or server-side `NOW()` injection | MEDIUM |
+| GPS accuracy | Captured with fallback to 500m (was 8m) | ✅ Improved, but should also capture fix type (2D/3D/None) | LOW |
+| Mock location detection | `loc.mocked` check added | ✅ Logging implemented; should reject or flag in audit | LOW |
+| Satellite info | Not captured | Record satellite count, HDOP, fix constellation (GPS/GLONASS/Galileo) | MEDIUM |
+| Cell tower fallback | Not implemented | Coarse location from cell tower when GPS unavailable | LOW |
+
+### Layer 5: Authentication & Identity
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Operator auth | Hardcoded `OP-042` | Supabase Auth with email/password or SSO integration | MEDIUM |
+| Badge verification | No verification | Badge number cross-check against HR/personnel database | MEDIUM |
+| Biometric gate | Not implemented | Fingerprint or FaceID before sealing a record | MEDIUM |
+| Session management | No explicit sessions | Token refresh, session timeout (15 min inactive), forced re-auth for seal | MEDIUM |
+| Multi-factor auth | Not implemented | Required for supervisor/admin roles | MEDIUM |
+| Audit of auth events | Not implemented | Log every login, logout, failed attempt, session refresh | LOW |
+
+### Layer 6: Data Layer & Storage
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Local database | In-memory array (`SEED_DEMO_RECORDS`) | `expo-sqlite` with encryption at rest (SQLCipher) | MEDIUM |
+| Offline-first sync | Falls back to local array | Proper offline queue with conflict resolution and sync status UI | HIGH |
+| Image storage | Not stored (simulated) | Supabase Storage with immutable bucket + SHA-256 verification on upload | MEDIUM |
+| Record ID generation | `Math.random()` suffix | UUID v4 or server-assigned monotonic sequence | LOW |
+| Schema migrations | Not implemented | Versioned migration scripts for schema changes | MEDIUM |
+| Backup & DR | Not implemented | Automated daily backups with point-in-time recovery | MEDIUM |
+| Data retention | No policy | Configurable retention period compliant with evidence preservation law | LOW |
+
+### Layer 7: Audit, Compliance & Reporting
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Audit trail | Single `RECORD_SEALED` event | Full lifecycle: CREATED → CAPTURED → VALIDATED → CLASSIFIED → SEALED → VERIFIED | MEDIUM |
+| Audit chain integrity | Independent events | Hash-chained audit events (each event hashes the previous) | MEDIUM |
+| Bulk export | Not implemented | Export filtered records as JSON, CSV, or PDF evidence packets | MEDIUM |
+| PDF evidence report | Not implemented | Court-ready PDF with record details, color swatches, chain of custody, signature verification | HIGH |
+| LIMS/RMS integration | Not implemented | API endpoints for integration with Laboratory Information Management Systems | HIGH |
+| Role-based access | No roles enforced | Operator (create), Supervisor (review), Auditor (read-only), Admin (manage) | MEDIUM |
+
+### Layer 8: Testing & Quality Assurance
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| Unit tests | None in codebase | Full coverage for crypto, classifier, records, canonicalization | MEDIUM |
+| Integration tests | None | End-to-end sealing + verification pipeline tests | MEDIUM |
+| E2E tests | None | Detox or Maestro tests for all 4 demo scenarios + tamper detection | HIGH |
+| Performance benchmarks | None | Sealing latency < 2s, verification < 500ms, classifier < 100ms | LOW |
+| Penetration testing | None | Independent security firm audit (OWASP MASVS Level 2) | HIGH |
+| Static analysis | TypeScript strict mode | Add ESLint, `tsc --noEmit` in CI, Snyk for dependency vulnerabilities | LOW |
+| Classifier regression | None | Automated test suite running all calibration samples on every PR | MEDIUM |
+
+### Layer 9: Deployment & Operations
+
+| Component | Prototype Status | Production Requirement | Effort |
+|---|---|---|---|
+| CI/CD pipeline | None | GitHub Actions: lint → typecheck → test → build → sign → distribute | MEDIUM |
+| App signing | Not configured | Production APK/IPA signing with code signing certificates | LOW |
+| Distribution | `expo start` dev mode | MDM distribution for government devices or TestFlight/Play Store | MEDIUM |
+| Monitoring | `console.warn` only | Sentry for crash reporting, Datadog for API monitoring | MEDIUM |
+| Incident response | None | Documented playbook for key compromise, data breach, system outage | LOW |
+| Feature flags | None | Gradual rollout of classifier updates, A/B testing | MEDIUM |
+| Version migration | `schemaVersion: '1.0'` stamped | Automated migration scripts when schema or classifier version changes | MEDIUM |
+
+---
+
+## 4. Production Architecture Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           FIELD OPERATOR DEVICE                         │
+│                                                                          │
+│  ┌────────────┐    ┌──────────────┐    ┌───────────────┐                │
+│  │   Camera    │───▶│  Image       │───▶│  Classifier   │                │
+│  │ (expo-cam)  │    │  Validator   │    │  (CIEDE2000)  │                │
+│  └────────────┘    │  - Ref card  │    │  - Two-vector │                │
+│                     │  - Focus     │    │  - Linear RGB │                │
+│       ┌─────┐      │  - Lighting  │    └───────┬───────┘                │
+│       │ GPS │      └──────────────┘            │                         │
+│       │ NTP │                                   ▼                         │
+│       └──┬──┘                         ┌─────────────────┐               │
+│          │                            │ Canonical Record │               │
+│          └───────────────────────────▶│ + SHA-256 Hash   │               │
+│                                       └────────┬────────┘               │
+│                                                │                         │
+│  ┌────────────────┐                            │                         │
+│  │  SQLite (local) │◀──── Store unsigned ──────┘                         │
+│  │  Offline Queue  │                                                     │
+│  └────────┬───────┘                                                      │
+└───────────┼──────────────────────────────────────────────────────────────┘
+            │ HTTPS (TLS 1.3 + Certificate Pinning)
+            ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        SECURE SERVER BOUNDARY                            │
+│                                                                          │
+│  ┌─────────────────────┐    ┌──────────────────────┐                    │
+│  │  Supabase Auth       │    │  Edge Function:      │                    │
+│  │  - Session verify    │───▶│  /seal-record        │                    │
+│  │  - Badge lookup      │    │  - Validate operator  │                    │
+│  │  - MFA check         │    │  - Check clock skew   │                    │
+│  └─────────────────────┘    │  - Inject server time │                    │
+│                              │  - Sign with Ed25519  │                    │
+│                              └──────────┬───────────┘                    │
+│                                         │                                │
+│           ┌─────────────────────────────┼─────────────────┐             │
+│           ▼                             ▼                  ▼             │
+│  ┌────────────────┐   ┌────────────────────┐  ┌──────────────────┐     │
+│  │  HSM / KMS      │   │  PostgreSQL (RLS)   │  │  Object Storage  │     │
+│  │  Ed25519 Key    │   │  - field_tests      │  │  - test-images   │     │
+│  │  (never leaves) │   │  - audit_events     │  │  - immutable     │     │
+│  └────────────────┘   │  - operators         │  └──────────────────┘     │
+│                        │  INSERT only (ops)   │                           │
+│                        │  SELECT (public)     │                           │
+│                        │  UPDATE/DELETE: deny  │                           │
+│                        └────────────────────┘                            │
+│                                                                          │
+│  ┌─────────────────────┐    ┌──────────────────────┐                    │
+│  │  RFC 3161 TSA        │    │  Public Verify Page  │                    │
+│  │  Trusted Timestamp   │    │  (static HTML + JS)  │                    │
+│  │  (DigiCert / NIST)   │    │  QR → Independent    │                    │
+│  └─────────────────────┘    │  SHA-256 + Ed25519   │                    │
+│                              └──────────────────────┘                    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. Prioritized Implementation Roadmap
+
+### Phase 0: Hackathon Demo Polish (Now → Stage Day)
+**Time:** 1–2 days  
+**Goal:** Maximize jury score without breaking existing functionality.
+
+- [ ] Add target ΔE bar to result screen (show two-vector logic visually)
+- [ ] Update explanation text to describe two-vector classification
+- [ ] Wire profile settings items with informational trailing text
+- [ ] Prepare and rehearse answers for coffee false-positive, private key, and clock skew questions
+- [ ] Verify seed fixture signatures validate correctly at runtime
+
+### Phase 1: Core Evidence Integrity (Post-Hackathon, Weeks 1–4)
+**Time:** 4 weeks  
+**Goal:** Make the cryptographic and evidentiary claims actually true.
+
+- [ ] Integrate real `expo-camera` capture with JPEG byte stream
+- [ ] Hash actual image bytes for `imageSha256` (replace placeholder string)
+- [ ] Build Supabase Edge Function `/seal-record` with environment-variable key
+- [ ] Remove `DEMO_SIGNER.secretKey` from client bundle entirely (no fallback)
+- [ ] Implement offline signing queue (store unsigned, seal when online)
+- [ ] Add dual timestamps (`deviceReportedAt` + `serverReceivedAt`)
+- [ ] Add clock skew rejection (>120 seconds → flag + audit event)
+- [ ] Replace `Math.random()` record ID suffix with UUID v4
+
+### Phase 2: Real Camera Pipeline (Weeks 5–8)
+**Time:** 4 weeks  
+**Goal:** Replace all simulated image processing with real computer vision.
+
+- [ ] Reference card contour detection (OpenCV via ONNX or TensorFlow Lite)
+- [ ] Color patch extraction from detected reference card regions
+- [ ] Multi-patch white balance (not just white point — use grey, red, blue patches)
+- [ ] Test region segmentation from captured image
+- [ ] Real-time focus quality measurement (Laplacian variance on preview frames)
+- [ ] Lighting quality assessment from reference card luminance
+- [ ] HDR auto-enhancement detection and suppression
+
+### Phase 3: Classifier Calibration & Validation (Weeks 9–14)
+**Time:** 6 weeks  
+**Goal:** Scientifically validate the classifier with real laboratory data.
+
+- [ ] Procure Marquis reagent test kits and reference substances
+- [ ] Photograph ≥390 samples across 3 lighting × 3 devices
+- [ ] Obtain GC-MS ground truth for every sample
+- [ ] Compute ROC curve, optimize ΔE thresholds
+- [ ] Publish validation metrics (sensitivity, specificity, PPV, NPV, AUC)
+- [ ] Build regression test suite from calibration dataset
+- [ ] Document everything in `docs/VALIDATION_REPORT.md`
+- [ ] Add calibration profiles for Mecke and Scott reagents
+
+### Phase 4: Authentication, RBAC & Audit (Weeks 15–18)
+**Time:** 4 weeks  
+**Goal:** Real identity management and chain-of-custody audit trail.
+
+- [ ] Implement Supabase Auth (email/password + optional SSO)
+- [ ] Badge number verification against operator registry
+- [ ] Biometric gate (fingerprint/FaceID) before record sealing
+- [ ] Session timeout and forced re-authentication
+- [ ] Role-based access control (operator, supervisor, auditor, admin)
+- [ ] Hash-chained audit events (each event hashes the previous)
+- [ ] Full lifecycle audit trail (CREATED → CAPTURED → VALIDATED → CLASSIFIED → SEALED → VERIFIED)
+
+### Phase 5: Deployment & Hardening (Weeks 19–24)
+**Time:** 6 weeks  
+**Goal:** Production deployment with monitoring, testing, and compliance.
+
+- [ ] CI/CD pipeline (lint → typecheck → test → build → sign)
+- [ ] Penetration test by independent security firm
+- [ ] Local SQLite with encryption at rest
+- [ ] Offline-first sync with conflict resolution
+- [ ] PDF evidence report generation
+- [ ] QR code verification flow
+- [ ] External web verification page (static HTML + TweetNaCl JS)
+- [ ] Sentry crash reporting + Datadog API monitoring
+- [ ] Key rotation procedure documentation
+- [ ] Incident response playbook
+- [ ] MDM distribution for government devices
+
+---
+
+## Summary: Current State vs. Production-Ready
+
+```
+┌───────────────────────────────────────┬─────────────┬──────────────────┐
+│ Capability                            │  Prototype  │  Production      │
+├───────────────────────────────────────┼─────────────┼──────────────────┤
+│ Camera capture                        │  Simulated  │  Real expo-cam   │
+│ Reference card detection              │  Hardcoded  │  CV contour det  │
+│ Image hashing                         │  Fake str   │  Real JPEG bytes │
+│ Classifier data                       │  4 RGB vals │  390+ photos     │
+│ Classifier validation                 │  None       │  ROC/AUC/k-fold  │
+│ Signing key                           │  In bundle  │  HSM / KMS       │
+│ Timestamp trust                       │  JS Date()  │  Dual + RFC 3161 │
+│ GPS integrity                         │  Basic      │  Mock detect+fix │
+│ Authentication                        │  Hardcoded  │  Auth + MFA      │
+│ Offline support                       │  Fallback   │  Queue + sync    │
+│ Audit chain                           │  1 event    │  Hash-chained    │
+│ Tamper demo                           │  1 toggle   │  Multi-field+QR  │
+│ External verification                 │  None       │  Web page + QR   │
+│ Evidence export                       │  None       │  PDF + JSON      │
+│ Test suite                            │  None       │  Full coverage   │
+│ Penetration test                      │  None       │  OWASP MASVS L2  │
+│ Monitoring                            │  console.*  │  Sentry+Datadog  │
+├───────────────────────────────────────┼─────────────┼──────────────────┤
+│ Estimated effort to production        │             │  ~24 weeks       │
+│ Court admissibility                   │  FAIL       │  CONDITIONAL     │
+│ ISO 17025 compliance                  │  FAIL       │  ACHIEVABLE      │
+└───────────────────────────────────────┴─────────────┴──────────────────┘
+```
+
+> **Bottom line:** The prototype demonstrates excellent architectural judgment and product philosophy. The gap to production is primarily in **real data** (replacing synthetic fixtures with laboratory-validated photographs), **real infrastructure** (HSM signing, trusted timestamps, real camera pipeline), and **real validation** (statistical metrics proving the classifier works). None of these gaps are architectural — the foundations are sound. The work is execution, calibration, and accreditation.

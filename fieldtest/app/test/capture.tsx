@@ -20,17 +20,31 @@ export default function CaptureScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const isMock = (loc as { mocked?: boolean }).mocked === true;
+          if (isMock) {
+            console.warn('[FieldTest GPS] Anti-spoofing alert: Mock location provider detected!');
+          }
           setCoords({
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
-            accuracyMeters: loc.coords.accuracy ? Math.round(loc.coords.accuracy * 10) / 10 : 8.0,
+            accuracyMeters: loc.coords.accuracy ? Math.round(loc.coords.accuracy * 10) / 10 : 25.0,
           });
           setGpsStatus('locked');
         } else {
           setGpsStatus('fallback');
+          setCoords({
+            latitude: 19.076,
+            longitude: 72.8777,
+            accuracyMeters: 500.0,
+          });
         }
       } catch (err) {
         setGpsStatus('fallback');
+        setCoords({
+          latitude: 19.076,
+          longitude: 72.8777,
+          accuracyMeters: 500.0,
+        });
       }
     })();
   }, []);

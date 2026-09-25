@@ -1,52 +1,80 @@
 import { createClient } from "@supabase/supabase-js";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "https://demo.fieldtest.supabase.co";
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "demo-anon-key";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    "[FieldTest] Supabase environment variables EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are not configured. Running in offline/demo fallback mode."
+export const isSupabaseConfigured = Boolean(
+  process.env.EXPO_PUBLIC_SUPABASE_URL && process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+);
+
+if (!isSupabaseConfigured) {
+  console.info(
+    "[FieldTest] Supabase environment variables not configured. Operating in offline/demo mode."
   );
 }
 
-// Custom storage adapter that works across React Native and Web
+// Universal storage adapter that works seamlessly across React Native, Web, and Node test runtimes
+const memoryStorage = new Map<string, string>();
 const storageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.localStorage) {
-        return window.localStorage.getItem(key);
-      }
-      return null;
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage.getItem(key);
     }
-    return AsyncStorage.getItem(key);
+    if (typeof navigator === "undefined" || (navigator as { product?: string }).product !== "ReactNative") {
+      return memoryStorage.get(key) ?? null;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default || require("@react-native-async-storage/async-storage");
+      return AsyncStorage.getItem(key);
+    } catch {
+      return memoryStorage.get(key) ?? null;
+    }
   },
   setItem: async (key: string, value: string): Promise<void> => {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.localStorage) {
-        window.localStorage.setItem(key, value);
-      }
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(key, value);
       return;
     }
-    await AsyncStorage.setItem(key, value);
+    if (typeof navigator === "undefined" || (navigator as { product?: string }).product !== "ReactNative") {
+      memoryStorage.set(key, value);
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default || require("@react-native-async-storage/async-storage");
+      await AsyncStorage.setItem(key, value);
+    } catch {
+      memoryStorage.set(key, value);
+    }
   },
   removeItem: async (key: string): Promise<void> => {
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.localStorage) {
-        window.localStorage.removeItem(key);
-      }
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(key);
       return;
     }
-    await AsyncStorage.removeItem(key);
+    if (typeof navigator === "undefined" || (navigator as { product?: string }).product !== "ReactNative") {
+      memoryStorage.delete(key);
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const AsyncStorage = require("@react-native-async-storage/async-storage").default || require("@react-native-async-storage/async-storage");
+      await AsyncStorage.removeItem(key);
+    } catch {
+      memoryStorage.delete(key);
+    }
   },
 };
+
+const isWeb = typeof window !== "undefined";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: storageAdapter,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: Platform.OS === "web",
+    detectSessionInUrl: isWeb,
   },
 });
+

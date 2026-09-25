@@ -34,10 +34,12 @@ export interface ClassificationExplanation {
   focusQuality: 'GOOD' | 'FAIR' | 'POOR';
   referenceCardDetected: boolean;
   testRegionDetected: boolean;
-  colorDifference: number; // CIE Delta E
+  colorDifference: number; // CIE Delta E from baseline blank
+  targetDifference?: number; // CIE Delta E from target positive
   observedColor: RgbColor;
   normalizedTestColor: RgbColor;
   referenceBaselineColor: RgbColor;
+  targetPositiveColor?: RgbColor;
 }
 
 export interface Classification {
@@ -87,9 +89,97 @@ function f(t: number): number {
 }
 
 /**
+ * CIEDE2000 Color Difference Metric (ISO/CIE 11664-6 / ASTM E2329 compliant)
+ * Perceptually uniform metric addressing CIE76 non-uniformity in blue/purple and saturated regions.
+ */
+export function calculateDeltaE2000(c1: LabColor, c2: LabColor): number {
+  const { L: L1, a: a1, b: b1 } = c1;
+  const { L: L2, a: a2, b: b2 } = c2;
+
+  const avgL = (L1 + L2) / 2;
+  const c1Val = Math.hypot(a1, b1);
+  const c2Val = Math.hypot(a2, b2);
+  const avgC = (c1Val + c2Val) / 2;
+
+  const pow7 = (x: number) => Math.pow(x, 7);
+  const G = 0.5 * (1 - Math.sqrt(pow7(avgC) / (pow7(avgC) + pow7(25))));
+
+  const a1Prime = (1 + G) * a1;
+  const a2Prime = (1 + G) * a2;
+
+  const c1Prime = Math.hypot(a1Prime, b1);
+  const c2Prime = Math.hypot(a2Prime, b2);
+  const avgCPrime = (c1Prime + c2Prime) / 2;
+
+  const radToDeg = (r: number) => (r * 180) / Math.PI;
+  const degToRad = (d: number) => (d * Math.PI) / 180;
+
+  const getHPrime = (aP: number, bP: number) => {
+    if (aP === 0 && bP === 0) return 0;
+    const deg = radToDeg(Math.atan2(bP, aP));
+    return deg >= 0 ? deg : deg + 360;
+  };
+
+  const h1Prime = getHPrime(a1Prime, b1);
+  const h2Prime = getHPrime(a2Prime, b2);
+
+  let deltaHPrimeAngle = 0;
+  if (c1Prime !== 0 && c2Prime !== 0) {
+    const diff = h2Prime - h1Prime;
+    if (Math.abs(diff) <= 180) {
+      deltaHPrimeAngle = diff;
+    } else if (diff > 180) {
+      deltaHPrimeAngle = diff - 360;
+    } else {
+      deltaHPrimeAngle = diff + 360;
+    }
+  }
+
+  const deltaLPrime = L2 - L1;
+  const deltaCPrime = c2Prime - c1Prime;
+  const deltaHPrime =
+    2 * Math.sqrt(c1Prime * c2Prime) * Math.sin(degToRad(deltaHPrimeAngle / 2));
+
+  let avgHPrime = 0;
+  if (c1Prime !== 0 && c2Prime !== 0) {
+    const diff = Math.abs(h1Prime - h2Prime);
+    const sum = h1Prime + h2Prime;
+    if (diff <= 180) {
+      avgHPrime = sum / 2;
+    } else if (sum < 360) {
+      avgHPrime = (sum + 360) / 2;
+    } else {
+      avgHPrime = (sum - 360) / 2;
+    }
+  } else {
+    avgHPrime = h1Prime + h2Prime;
+  }
+
+  const T =
+    1 -
+    0.17 * Math.cos(degToRad(avgHPrime - 30)) +
+    0.24 * Math.cos(degToRad(2 * avgHPrime)) +
+    0.32 * Math.cos(degToRad(3 * avgHPrime + 6)) -
+    0.2 * Math.cos(degToRad(4 * avgHPrime - 63));
+
+  const deltaTheta = 30 * Math.exp(-Math.pow((avgHPrime - 275) / 25, 2));
+  const RC = 2 * Math.sqrt(pow7(avgCPrime) / (pow7(avgCPrime) + pow7(25)));
+  const SL = 1 + (0.015 * Math.pow(avgL - 50, 2)) / Math.sqrt(20 + Math.pow(avgL - 50, 2));
+  const SC = 1 + 0.045 * avgCPrime;
+  const SH = 1 + 0.015 * avgCPrime * T;
+  const RT = -Math.sin(degToRad(2 * deltaTheta)) * RC;
+
+  const dL = deltaLPrime / SL;
+  const dC = deltaCPrime / SC;
+  const dH = deltaHPrime / SH;
+
+  return Math.sqrt(dL * dL + dC * dC + dH * dH + RT * dC * dH);
+}
+
+/**
  * CIE76 / Euclidean Delta E in LAB color space
  */
-export function calculateDeltaE(c1: LabColor, c2: LabColor): number {
+export function calculateDeltaE76(c1: LabColor, c2: LabColor): number {
   const dL = c1.L - c2.L;
   const da = c1.a - c2.a;
   const db = c1.b - c2.b;
@@ -97,31 +187,64 @@ export function calculateDeltaE(c1: LabColor, c2: LabColor): number {
 }
 
 /**
- * Normalize test color against measured reference card white point
+ * Standard Delta E calculation (defaults to CIEDE2000)
+ */
+export function calculateDeltaE(c1: LabColor, c2: LabColor): number {
+  return calculateDeltaE2000(c1, c2);
+}
+
+/**
+ * Linear sensor RGB chromatic normalization
+ * Converts sRGB to linear, scales relative to reference card white point,
+ * and converts back to sRGB, preventing non-linear gamma chromaticity distortion.
  */
 export function normalizeColor(
   observedRgb: RgbColor,
   measuredWhite: RgbColor,
   idealWhite: RgbColor = { r: 245, g: 245, b: 245 }
 ): RgbColor {
-  const scaleR = idealWhite.r / Math.max(measuredWhite.r, 1);
-  const scaleG = idealWhite.g / Math.max(measuredWhite.g, 1);
-  const scaleB = idealWhite.b / Math.max(measuredWhite.b, 1);
+  const toLinear = (c: number) => {
+    const norm = Math.max(0, Math.min(255, c)) / 255;
+    return norm > 0.04045 ? Math.pow((norm + 0.055) / 1.055, 2.4) : norm / 12.92;
+  };
+
+  const toSrgb = (lin: number) => {
+    const val = lin > 0.0031308 ? 1.055 * Math.pow(lin, 1 / 2.4) - 0.055 : 12.92 * lin;
+    return Math.min(255, Math.max(0, Math.round(val * 255)));
+  };
+
+  const obsLinearR = toLinear(observedRgb.r);
+  const obsLinearG = toLinear(observedRgb.g);
+  const obsLinearB = toLinear(observedRgb.b);
+
+  const whiteLinearR = Math.max(toLinear(measuredWhite.r), 0.001);
+  const whiteLinearG = Math.max(toLinear(measuredWhite.g), 0.001);
+  const whiteLinearB = Math.max(toLinear(measuredWhite.b), 0.001);
+
+  const idealLinearR = toLinear(idealWhite.r);
+  const idealLinearG = toLinear(idealWhite.g);
+  const idealLinearB = toLinear(idealWhite.b);
+
+  const scaleR = idealLinearR / whiteLinearR;
+  const scaleG = idealLinearG / whiteLinearG;
+  const scaleB = idealLinearB / whiteLinearB;
 
   return {
-    r: Math.min(255, Math.max(0, Math.round(observedRgb.r * scaleR))),
-    g: Math.min(255, Math.max(0, Math.round(observedRgb.g * scaleG))),
-    b: Math.min(255, Math.max(0, Math.round(observedRgb.b * scaleB))),
+    r: toSrgb(obsLinearR * scaleR),
+    g: toSrgb(obsLinearG * scaleG),
+    b: toSrgb(obsLinearB * scaleB),
   };
 }
 
 /**
  * Deterministic Classification Function
+ * Uses two-vector colorimetry: checks departure from reagent blank AND convergence to target analyte chromophore.
  */
 export function classifySample(params: {
   observedRgb: RgbColor;
   measuredWhiteRgb?: RgbColor;
   baselineRgb?: RgbColor; // Target baseline (e.g. unreacted reagent)
+  targetPositiveRgb?: RgbColor; // Expected analyte reaction product (e.g. violet for Marquis)
   referenceCardDetected: boolean;
   testRegionDetected: boolean;
   lightingQuality?: 'GOOD' | 'FAIR' | 'POOR';
@@ -129,6 +252,7 @@ export function classifySample(params: {
 }): Classification {
   const lightingQuality = params.lightingQuality || 'GOOD';
   const focusQuality = params.focusQuality || 'GOOD';
+  const targetPositiveColor = params.targetPositiveRgb || { r: 68, g: 24, b: 92 }; // Marquis violet
 
   // Step 1: Validation Gates
   if (!params.referenceCardDetected || !params.testRegionDetected || lightingQuality === 'POOR' || focusQuality === 'POOR') {
@@ -142,9 +266,11 @@ export function classifySample(params: {
         referenceCardDetected: params.referenceCardDetected,
         testRegionDetected: params.testRegionDetected,
         colorDifference: 0,
+        targetDifference: 0,
         observedColor: params.observedRgb,
         normalizedTestColor: params.observedRgb,
         referenceBaselineColor: params.baselineRgb || { r: 240, g: 235, b: 220 },
+        targetPositiveColor,
       },
     };
   }
@@ -154,26 +280,31 @@ export function classifySample(params: {
   const normalizedTestColor = normalizeColor(params.observedRgb, measuredWhite);
   const referenceBaselineColor = params.baselineRgb || { r: 240, g: 235, b: 220 }; // Neutral reagent baseline
 
-  // Step 3: Color difference calculation
+  // Step 3: Two-Vector Color difference calculation
   const labTest = rgbToLab(normalizedTestColor);
   const labBaseline = rgbToLab(referenceBaselineColor);
-  const deltaE = parseFloat(calculateDeltaE(labTest, labBaseline).toFixed(2));
+  const labTarget = rgbToLab(targetPositiveColor);
+
+  const deltaEBaseline = parseFloat(calculateDeltaE(labTest, labBaseline).toFixed(2));
+  const deltaETarget = parseFloat(calculateDeltaE(labTest, labTarget).toFixed(2));
 
   // Step 4: Decision Boundaries & Confidence Calculation
   let result: ClassificationResult;
   let confidence: number;
 
-  if (deltaE >= 15.0) {
-    // Distinct color shift (e.g. purple/violet reaction)
-    confidence = Math.min(1.0, 0.75 + (deltaE - 15.0) / 40.0);
-    result = 'PRESUMPTIVE_POSITIVE';
-  } else if (deltaE <= 5.0) {
-    // Little to no deviation from baseline
-    confidence = Math.min(1.0, 0.75 + (5.0 - deltaE) / 20.0);
+  if (deltaEBaseline <= 5.0) {
+    // Little to no deviation from baseline -> Presumptive Negative
+    confidence = Math.min(1.0, 0.75 + (5.0 - deltaEBaseline) / 20.0);
     result = 'PRESUMPTIVE_NEGATIVE';
+  } else if (deltaEBaseline >= 15.0 && deltaETarget <= 14.0) {
+    // Deviated from blank AND matches target analyte reaction profile -> Presumptive Positive
+    confidence = Math.min(1.0, 0.75 + (14.0 - deltaETarget) / 30.0);
+    result = 'PRESUMPTIVE_POSITIVE';
   } else {
-    // Ambiguous middle band -> First class INCONCLUSIVE result!
-    confidence = Math.max(0.2, 0.5 - Math.abs(deltaE - 10.0) / 20.0);
+    // Either ambiguous transition band (5 < deltaE < 15) OR off-target contaminant (deltaE > 15 but wrong color)
+    confidence = deltaEBaseline > 15.0
+      ? 0.35 // Contaminant / foreign reaction
+      : Math.max(0.2, 0.5 - Math.abs(deltaEBaseline - 10.0) / 20.0);
     result = 'INCONCLUSIVE';
   }
 
@@ -186,10 +317,12 @@ export function classifySample(params: {
       focusQuality,
       referenceCardDetected: true,
       testRegionDetected: true,
-      colorDifference: deltaE,
+      colorDifference: deltaEBaseline,
+      targetDifference: deltaETarget,
       observedColor: params.observedRgb,
       normalizedTestColor,
       referenceBaselineColor,
+      targetPositiveColor,
     },
   };
 }
