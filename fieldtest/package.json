@@ -35,7 +35,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "npx tsx __tests__/crypto.test.ts && npx tsx __tests__/records.test.ts && npx tsx __tests__/classifier.test.ts && npx tsx __tests__/calibration.test.ts && npx tsx __tests__/auditTrail.test.ts",
+    "test": "npx tsx __tests__/crypto.test.ts && npx tsx __tests__/records.test.ts && npx tsx __tests__/classifier.test.ts && npx tsx __tests__/calibration.test.ts && npx tsx __tests__/auditTrail.test.ts && npx tsx __tests__/temporalGeospatial.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "private": true

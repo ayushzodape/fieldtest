@@ -7,12 +7,31 @@ import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../
 import { resetActiveTestDraft, updateActiveTestDraft, ActiveTestDraft } from '../../lib/testSession';
 import { DEMO_FIXTURES } from '../../lib/classifier';
 import { generateEvidenceImage } from '../../lib/imageGenerator';
+import { GpsFixType } from '../../lib/temporalGeospatial';
+
+interface LocationState {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  altitudeMeters?: number;
+  isMocked: boolean;
+  fixType: GpsFixType;
+  hdop?: number;
+}
 
 export default function CaptureScreen() {
   const router = useRouter();
   const [scenario, setScenario] = useState<ActiveTestDraft['scenarioKey']>('positive');
   const [gpsStatus, setGpsStatus] = useState<'acquiring' | 'locked' | 'fallback'>('acquiring');
-  const [coords, setCoords] = useState({ latitude: 19.076, longitude: 72.8777, accuracyMeters: 8.4 });
+  const [coords, setCoords] = useState<LocationState>({
+    latitude: 19.076,
+    longitude: 72.8777,
+    accuracyMeters: 8.4,
+    altitudeMeters: 14.2,
+    isMocked: false,
+    fixType: '3D',
+    hdop: 1.1,
+  });
 
   // Load GPS coordinates
   useEffect(() => {
@@ -25,10 +44,17 @@ export default function CaptureScreen() {
           if (isMock) {
             console.warn('[FieldTest GPS] Anti-spoofing alert: Mock location provider detected!');
           }
+          const accuracy = loc.coords.accuracy ? Math.round(loc.coords.accuracy * 10) / 10 : 25.0;
+          const fixType: GpsFixType = accuracy <= 25 ? '3D' : accuracy <= 150 ? '2D' : 'CELL_TOWER';
+          const altitude = typeof loc.coords.altitude === 'number' ? Math.round(loc.coords.altitude * 10) / 10 : undefined;
           setCoords({
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
-            accuracyMeters: loc.coords.accuracy ? Math.round(loc.coords.accuracy * 10) / 10 : 25.0,
+            accuracyMeters: accuracy,
+            altitudeMeters: altitude,
+            isMocked: isMock,
+            fixType,
+            hdop: accuracy <= 15 ? 1.0 : accuracy <= 50 ? 1.5 : 2.5,
           });
           setGpsStatus('locked');
         } else {
@@ -37,6 +63,9 @@ export default function CaptureScreen() {
             latitude: 19.076,
             longitude: 72.8777,
             accuracyMeters: 500.0,
+            isMocked: false,
+            fixType: 'CELL_TOWER',
+            hdop: 5.0,
           });
         }
       } catch (err) {
@@ -45,6 +74,9 @@ export default function CaptureScreen() {
           latitude: 19.076,
           longitude: 72.8777,
           accuracyMeters: 500.0,
+          isMocked: false,
+          fixType: 'CELL_TOWER',
+          hdop: 5.0,
         });
       }
     })();
@@ -57,6 +89,10 @@ export default function CaptureScreen() {
       latitude: coords.latitude,
       longitude: coords.longitude,
       accuracyMeters: coords.accuracyMeters,
+      altitudeMeters: coords.altitudeMeters,
+      isMocked: coords.isMocked,
+      fixType: coords.fixType,
+      hdop: coords.hdop,
     });
   }, [scenario, coords]);
 
@@ -83,6 +119,13 @@ export default function CaptureScreen() {
       updateActiveTestDraft({
         timestamp: new Date().toISOString(),
         quality: checks,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracyMeters: coords.accuracyMeters,
+        altitudeMeters: coords.altitudeMeters,
+        isMocked: coords.isMocked,
+        fixType: coords.fixType,
+        hdop: coords.hdop,
         imageSha256: artifact.imageSha256,
         evidenceDataUri: artifact.dataUri,
         rawImageBytes: artifact.imageBytes,
@@ -91,6 +134,13 @@ export default function CaptureScreen() {
       updateActiveTestDraft({
         timestamp: new Date().toISOString(),
         quality: checks,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        accuracyMeters: coords.accuracyMeters,
+        altitudeMeters: coords.altitudeMeters,
+        isMocked: coords.isMocked,
+        fixType: coords.fixType,
+        hdop: coords.hdop,
       });
     }
     router.push('/test/review');
@@ -174,14 +224,15 @@ export default function CaptureScreen() {
         </View>
 
         {/* GPS Indicator Badge */}
-        <View style={styles.gpsBadge}>
+        <View style={[styles.gpsBadge, coords.isMocked && { borderColor: Colors.danger }]}>
           <Ionicons
-            name={gpsStatus === 'locked' ? 'location' : 'location-outline'}
+            name={coords.isMocked ? 'warning' : gpsStatus === 'locked' ? 'location' : 'location-outline'}
             size={12}
-            color={gpsStatus === 'locked' ? Colors.success : Colors.warning}
+            color={coords.isMocked ? Colors.danger : gpsStatus === 'locked' ? Colors.success : Colors.warning}
           />
-          <Text style={styles.gpsBadgeText}>
-            GPS: {coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)} (±{coords.accuracyMeters}m)
+          <Text style={[styles.gpsBadgeText, coords.isMocked && { color: Colors.danger, fontWeight: FontWeight.bold }]}>
+            {coords.isMocked ? '⚠️ MOCK LOCATION DETECTED: ' : `${coords.fixType} GNSS: `}
+            {coords.latitude.toFixed(4)}, {coords.longitude.toFixed(4)} (±{coords.accuracyMeters}m)
           </Text>
         </View>
 

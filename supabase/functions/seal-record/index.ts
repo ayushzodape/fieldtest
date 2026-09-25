@@ -85,7 +85,26 @@ serve(async (req) => {
       );
     }
 
-    // 2. Fetch server HSM / Secret Key from Vault / Environment
+    // 2. Validate Clock Skew & Temporal Integrity (Layer 4)
+    const MAX_CLOCK_SKEW_SECONDS = 120;
+    const serverReceivedAt = new Date().toISOString();
+    const deviceTime = new Date(canonicalRecord.capturedAt).getTime();
+    const serverTime = new Date(serverReceivedAt).getTime();
+    const clockSkewSeconds = parseFloat((Math.abs(deviceTime - serverTime) / 1000).toFixed(2));
+
+    if (isNaN(deviceTime) || clockSkewSeconds > MAX_CLOCK_SKEW_SECONDS) {
+      return new Response(
+        JSON.stringify({
+          error: `Clock skew violation. Device timestamp deviates from server time by ${clockSkewSeconds}s (max allowed: ${MAX_CLOCK_SKEW_SECONDS}s).`,
+          deviceReportedAt: canonicalRecord.capturedAt,
+          serverReceivedAt,
+          clockSkewSeconds,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Fetch server HSM / Secret Key from Vault / Environment
     const secretKeyHex = Deno.env.get("FIELDTEST_SIGNING_KEY") ||
       "87042a92634e7bb45a7eb82eef1108ef91b5c2a129ef31885f83863ca6be48108227260ea8e7aa475ecdb3f6655e13d6a01655e218458d418959521087218ea6";
 
@@ -93,7 +112,7 @@ serve(async (req) => {
     const keyPair = nacl.sign.keyPair.fromSecretKey(secretKeyBytes);
     const publicKeyHex = bytesToHex(keyPair.publicKey);
 
-    // 3. Detached Ed25519 signature
+    // 4. Detached Ed25519 signature
     const messageBytes = new TextEncoder().encode(canonicalString);
     const signatureBytes = nacl.sign.detached(messageBytes, keyPair.secretKey);
     const signature = bytesToHex(signatureBytes);
@@ -104,7 +123,10 @@ serve(async (req) => {
         recordHash: computedHash,
         signature,
         publicKey: publicKeyHex,
-        sealedAt: new Date().toISOString(),
+        sealedAt: serverReceivedAt,
+        deviceReportedAt: canonicalRecord.capturedAt,
+        serverReceivedAt,
+        clockSkewSeconds,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

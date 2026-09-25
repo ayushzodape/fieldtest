@@ -12,6 +12,11 @@ export interface ActiveTestDraft {
   latitude: number;
   longitude: number;
   accuracyMeters: number;
+  altitudeMeters?: number;
+  isMocked?: boolean;
+  fixType?: '3D' | '2D' | 'CELL_TOWER' | 'NONE';
+  hdop?: number;
+  satellitesTracked?: number;
   timestamp: string;
   operatorId: string;
   quality: {

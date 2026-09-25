@@ -35,6 +35,13 @@ CREATE TABLE IF NOT EXISTS public.field_tests (
     is_verified BOOLEAN NOT NULL DEFAULT TRUE,
     canonical_record JSONB NOT NULL,
     explanation JSONB,
+    -- Layer 4 Temporal & Geospatial Integrity
+    device_reported_at TIMESTAMPTZ,
+    server_received_at TIMESTAMPTZ,
+    clock_skew_seconds NUMERIC(8, 2),
+    fix_type TEXT CHECK (fix_type IN ('3D', '2D', 'CELL_TOWER', 'NONE')),
+    is_mock_location BOOLEAN DEFAULT FALSE,
+    hdop NUMERIC(5, 2),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

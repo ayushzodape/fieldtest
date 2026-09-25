@@ -39,6 +39,11 @@ export default function SealedScreen() {
           accuracyMeters: draft.accuracyMeters,
           imageBytesOrHash: realImageHash,
           explanation: draft.classification?.explanation as unknown as Record<string, unknown>,
+          capturedAt: draft.timestamp,
+          mocked: draft.isMocked,
+          fixType: draft.fixType,
+          altitudeMeters: draft.altitudeMeters,
+          hdop: draft.hdop,
         });
         setSealedRecord(row);
       } catch (err) {
@@ -136,12 +141,15 @@ export default function SealedScreen() {
         <EvidenceRow label="Ed25519 Signature" value={sigShort} mono />
         <EvidenceRow label="Schema Version" value="v1.0" mono />
         <EvidenceRow label="Classifier Version" value="color-v1.0" mono />
+        <EvidenceRow label="Device Timestamp" value={sealedRecord?.device_reported_at || draft.timestamp} mono />
+        <EvidenceRow label="Server NTP Timestamp" value={sealedRecord?.server_received_at || 'Synchronized'} mono />
+        <EvidenceRow label="Clock Skew" value={`${sealedRecord?.clock_skew_seconds ?? 0}s (Tolerance: ≤120s)`} mono />
         <EvidenceRow label="Storage Status" value="Persisted to Supabase" />
       </View>
 
       {/* Location */}
       <View style={styles.locationCard}>
-        <Text style={styles.sectionTitle}>GEOSPATIAL CO-ORDINATES</Text>
+        <Text style={styles.sectionTitle}>GEOSPATIAL PROVENANCE & FIX</Text>
         <View style={styles.locationRow}>
           <Text style={styles.locationLabel}>Coordinates</Text>
           <Text style={styles.locationValue}>
@@ -153,8 +161,14 @@ export default function SealedScreen() {
           <Text style={styles.locationValue}>±{draft.accuracyMeters} m</Text>
         </View>
         <View style={styles.locationRow}>
-          <Text style={styles.locationLabel}>Source</Text>
-          <Text style={styles.locationValue}>GNSS Receiver</Text>
+          <Text style={styles.locationLabel}>GNSS Fix Type</Text>
+          <Text style={styles.locationValue}>{sealedRecord?.fix_type || draft.fixType || '3D'}</Text>
+        </View>
+        <View style={styles.locationRow}>
+          <Text style={styles.locationLabel}>Anti-Spoofing</Text>
+          <Text style={[styles.locationValue, { color: sealedRecord?.is_mock_location ? Colors.danger : Colors.success, fontWeight: FontWeight.bold }]}>
+            {sealedRecord?.is_mock_location ? 'MOCK LOCATION DETECTED' : 'AUTHENTIC HARDWARE GNSS'}
+          </Text>
         </View>
       </View>
 

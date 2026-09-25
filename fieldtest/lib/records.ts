@@ -9,6 +9,12 @@ import { CanonicalRecord, SealedRecord } from '../types/record';
 import { ClassificationResult } from '../types/test';
 import { RgbColor } from './classifier';
 import { generateEvidenceImage } from './imageGenerator';
+import {
+  evaluateClockSkew,
+  evaluateGeospatialIntegrity,
+  generateSecureRecordId,
+  GpsFixType,
+} from './temporalGeospatial';
 
 // Client trusted verification public key (from environment or default root authority)
 export const TRUSTED_PUBLIC_KEY =
@@ -42,6 +48,13 @@ export interface FieldTestRow {
   canonical_record: CanonicalRecord;
   explanation?: Record<string, unknown>;
   created_at?: string;
+  // Layer 4 Temporal & Geospatial Provenance
+  device_reported_at?: string;
+  server_received_at?: string;
+  clock_skew_seconds?: number;
+  fix_type?: GpsFixType;
+  is_mock_location?: boolean;
+  hdop?: number;
 }
 
 // Fallback demo records (compliant with 15 rules & cryptographically authentic)
@@ -216,11 +229,30 @@ export async function sealAndSaveFieldTest(params: {
   accuracyMeters: number;
   imageBytesOrHash?: string;
   explanation?: Record<string, unknown>;
+  capturedAt?: string;
+  mocked?: boolean;
+  fixType?: GpsFixType;
+  altitudeMeters?: number;
+  hdop?: number;
 }): Promise<FieldTestRow> {
-  // 1. Generate unique record ID
-  const timestamp = new Date().toISOString();
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  const recordId = `FT-${new Date().getUTCFullYear()}-${randomSuffix}`;
+  // 1. Generate unique, cryptographically secure Record ID using UUID v4
+  const { recordId } = generateSecureRecordId();
+  const deviceReportedAt = params.capturedAt || new Date().toISOString();
+
+  // Evaluate geospatial fix & anti-spoofing
+  const geo = evaluateGeospatialIntegrity({
+    latitude: params.latitude,
+    longitude: params.longitude,
+    accuracyMeters: params.accuracyMeters,
+    altitudeMeters: params.altitudeMeters,
+    mocked: params.mocked,
+    fixType: params.fixType,
+    hdop: params.hdop,
+  });
+
+  if (geo.isMocked) {
+    console.warn(`[FieldTest Anti-Spoofing] Mock location detected on record ${recordId}! Flagging in provenance log.`);
+  }
 
   // 2. Hash image (bind physical byte stream, authentic hex digest, or generated evidence raster)
   let imageSha256: string;
@@ -245,11 +277,11 @@ export async function sealAndSaveFieldTest(params: {
     schemaVersion: '1.0',
     recordId,
     operatorId: params.operatorId,
-    capturedAt: timestamp,
+    capturedAt: deviceReportedAt,
     location: {
-      latitude: params.latitude,
-      longitude: params.longitude,
-      accuracyMeters: params.accuracyMeters,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      accuracyMeters: geo.accuracyMeters,
     },
     classification: {
       result: params.result,
@@ -266,6 +298,8 @@ export async function sealAndSaveFieldTest(params: {
   // 5. Sign with Ed25519: Use Edge Function / Server HSM boundary if available, with offline fallback
   let signature: string;
   let publicKey = TRUSTED_PUBLIC_KEY;
+  let serverReceivedAt = new Date().toISOString();
+  let clockSkewSeconds = 0;
 
   try {
     const { data: signResult, error: signError } = await supabase.functions.invoke('seal-record', {
@@ -277,20 +311,30 @@ export async function sealAndSaveFieldTest(params: {
       if (signResult.publicKey) {
         publicKey = signResult.publicKey;
       }
+      if (signResult.serverReceivedAt) {
+        serverReceivedAt = signResult.serverReceivedAt;
+      }
+      if (typeof signResult.clockSkewSeconds === 'number') {
+        clockSkewSeconds = signResult.clockSkewSeconds;
+      }
     } else {
       signature = signCanonicalString(canonicalString, DEMO_SIGNER.secretKey);
+      const skew = evaluateClockSkew(deviceReportedAt, serverReceivedAt);
+      clockSkewSeconds = skew.skewSeconds;
     }
   } catch (_err) {
     signature = signCanonicalString(canonicalString, DEMO_SIGNER.secretKey);
+    const skew = evaluateClockSkew(deviceReportedAt, serverReceivedAt);
+    clockSkewSeconds = skew.skewSeconds;
   }
 
   const newRow: FieldTestRow = {
     record_id: recordId,
     operator_id: params.operatorId,
-    captured_at: timestamp,
-    latitude: params.latitude,
-    longitude: params.longitude,
-    accuracy_meters: params.accuracyMeters,
+    captured_at: deviceReportedAt,
+    latitude: geo.latitude,
+    longitude: geo.longitude,
+    accuracy_meters: geo.accuracyMeters,
     test_type: 'marquis',
     result: params.result,
     confidence: params.confidence,
@@ -303,6 +347,12 @@ export async function sealAndSaveFieldTest(params: {
     is_verified: true,
     canonical_record: canonicalRecord,
     explanation: params.explanation,
+    device_reported_at: deviceReportedAt,
+    server_received_at: serverReceivedAt,
+    clock_skew_seconds: clockSkewSeconds,
+    fix_type: geo.fixType,
+    is_mock_location: geo.isMocked,
+    hdop: geo.hdop,
   };
 
   // 6. Persist to Supabase if available

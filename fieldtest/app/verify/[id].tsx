@@ -415,6 +415,34 @@ export default function VerifyScreen() {
           value={`v${activeCanonical?.schemaVersion || '1.0'}`}
           mono
         />
+        {record?.server_received_at && (
+          <DetailRow
+            label="SERVER NTP TIME"
+            value={record.server_received_at}
+            mono
+          />
+        )}
+        {typeof record?.clock_skew_seconds === 'number' && (
+          <DetailRow
+            label="CLOCK SKEW"
+            value={`${record.clock_skew_seconds}s (≤120s limit)`}
+            mono
+          />
+        )}
+        {record?.fix_type && (
+          <DetailRow
+            label="GNSS FIX TYPE"
+            value={record.fix_type}
+            mono
+          />
+        )}
+        {typeof record?.is_mock_location === 'boolean' && (
+          <DetailRow
+            label="ANTI-SPOOFING"
+            value={record.is_mock_location ? 'MOCK LOCATION FLAGGED' : 'AUTHENTIC GNSS HARDWARE'}
+            valueColor={record.is_mock_location ? Colors.danger : Colors.success}
+          />
+        )}
       </View>
 
       {/* Export / External Verification Tools */}
