@@ -112,10 +112,10 @@ export default function ResultScreen() {
           </View>
         </View>
 
-        {/* Delta E metric */}
+        {/* Vector 1: Reagent Blank Departure */}
         <View style={styles.deltaEContainer}>
           <View style={styles.deltaEHeader}>
-            <Text style={styles.deltaELabel}>Color Difference (CIE ΔE)</Text>
+            <Text style={styles.deltaELabel}>Vector 1: Baseline Departure (CIE ΔE₀₀)</Text>
             <Text style={[styles.deltaEValue, { color: resultColor }]}>{deltaE.toFixed(1)}</Text>
           </View>
           <View style={styles.deltaEBar}>
@@ -124,30 +124,60 @@ export default function ResultScreen() {
                 styles.deltaEFill,
                 {
                   width: `${Math.min(100, Math.max(5, (deltaE / 30) * 100))}%`,
-                  backgroundColor: resultColor,
+                  backgroundColor: deltaE >= 14.5 ? Colors.accent : Colors.textTertiary,
                 },
               ]}
             />
           </View>
           <View style={styles.deltaEScale}>
-            <Text style={styles.deltaEScaleLabel}>Negative (≤5.0)</Text>
-            <Text style={styles.deltaEScaleLabel}>Inconclusive</Text>
-            <Text style={styles.deltaEScaleLabel}>Positive (≥15.0)</Text>
+            <Text style={styles.deltaEScaleLabel}>Unreacted (≤5.0)</Text>
+            <Text style={styles.deltaEScaleLabel}>Ambiguous</Text>
+            <Text style={styles.deltaEScaleLabel}>Reacted (≥14.5)</Text>
           </View>
         </View>
+
+        {/* Vector 2: Target Chromophore Convergence */}
+        {classification.explanation.targetDifference !== undefined && (
+          <View style={[styles.deltaEContainer, { marginTop: Spacing.md }]}>
+            <View style={styles.deltaEHeader}>
+              <Text style={styles.deltaELabel}>Vector 2: Target Convergence (CIE ΔE₀₀)</Text>
+              <Text style={[styles.deltaEValue, { color: resultColor }]}>
+                {classification.explanation.targetDifference.toFixed(1)}
+              </Text>
+            </View>
+            <View style={styles.deltaEBar}>
+              <View
+                style={[
+                  styles.deltaEFill,
+                  {
+                    width: `${Math.min(100, Math.max(5, (classification.explanation.targetDifference / 30) * 100))}%`,
+                    backgroundColor:
+                      classification.explanation.targetDifference <= 14.0 ? Colors.success : Colors.warning,
+                  },
+                ]}
+              />
+            </View>
+            <View style={styles.deltaEScale}>
+              <Text style={styles.deltaEScaleLabel}>Target Match (≤14.0)</Text>
+              <Text style={styles.deltaEScaleLabel}>Intermediate</Text>
+              <Text style={styles.deltaEScaleLabel}>Off-Target / Adulterant</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Explanation */}
       <View style={styles.explanationCard}>
         <Ionicons name="information-circle" size={20} color={Colors.accent} />
         <Text style={styles.explanationText}>
-          Classification is calculated via deterministic CIELAB color transformation normalized against the
-          captured reference card white point. ΔE of {deltaE.toFixed(1)} {
-            deltaE >= 15.0
-              ? 'exceeds the presumptive positive threshold (≥15.0).'
-              : deltaE <= 5.0
-                ? 'is within baseline non-reaction range (≤5.0).'
-                : 'falls within the ambiguous band (5.0–15.0) requiring laboratory confirmation.'
+          Deterministic Two-Vector Colorimetry: Evaluates reagent blank departure (ΔE {deltaE.toFixed(1)}) and target analyte convergence (ΔE {classification.explanation.targetDifference?.toFixed(1) ?? 'N/A'}). {
+            result === 'PRESUMPTIVE_POSITIVE'
+              ? 'Sample departed from unreacted blank and converged to target alkaloid violet profile.'
+              : result === 'PRESUMPTIVE_NEGATIVE'
+                ? 'Sample remained within unreacted reagent baseline threshold (≤5.0).'
+                : deltaE >= 15.0
+                  ? 'Sample deviated from blank but did not match target profile; flagged as foreign contaminant / adulterant reaction.'
+                  : 'Faint trace reaction fell within ambiguous transition zone; requires lab GC-MS confirmation.'
           }
         </Text>
       </View>

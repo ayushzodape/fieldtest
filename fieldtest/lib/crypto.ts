@@ -92,6 +92,8 @@ export async function sha256Hex(data: string | Uint8Array): Promise<string> {
   throw new Error('Web Crypto API (crypto.subtle) is required for SHA-256 computation');
 }
 
+export const sha256Bytes = sha256Hex;
+
 /**
  * Generate Ed25519 Key Pair
  */

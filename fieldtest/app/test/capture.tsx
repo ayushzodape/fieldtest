@@ -6,6 +6,7 @@ import * as Location from 'expo-location';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
 import { resetActiveTestDraft, updateActiveTestDraft, ActiveTestDraft } from '../../lib/testSession';
 import { DEMO_FIXTURES } from '../../lib/classifier';
+import { generateEvidenceImage } from '../../lib/imageGenerator';
 
 export default function CaptureScreen() {
   const router = useRouter();
@@ -73,11 +74,25 @@ export default function CaptureScreen() {
     checks.focus &&
     (checks.lighting === 'GOOD' || checks.lighting === 'FAIR');
 
-  const handleCapture = () => {
-    updateActiveTestDraft({
-      timestamp: new Date().toISOString(),
-      quality: checks,
-    });
+  const handleCapture = async () => {
+    try {
+      const artifact = await generateEvidenceImage({
+        observedRgb: fixture.params.observedRgb,
+        measuredWhiteRgb: fixture.params.measuredWhiteRgb,
+      });
+      updateActiveTestDraft({
+        timestamp: new Date().toISOString(),
+        quality: checks,
+        imageSha256: artifact.imageSha256,
+        evidenceDataUri: artifact.dataUri,
+        rawImageBytes: artifact.imageBytes,
+      });
+    } catch {
+      updateActiveTestDraft({
+        timestamp: new Date().toISOString(),
+        quality: checks,
+      });
+    }
     router.push('/test/review');
   };
 

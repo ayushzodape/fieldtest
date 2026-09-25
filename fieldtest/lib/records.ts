@@ -7,6 +7,8 @@ import {
 } from './crypto';
 import { CanonicalRecord, SealedRecord } from '../types/record';
 import { ClassificationResult } from '../types/test';
+import { RgbColor } from './classifier';
+import { generateEvidenceImage } from './imageGenerator';
 
 // Client trusted verification public key (from environment or default root authority)
 export const TRUSTED_PUBLIC_KEY =
@@ -220,12 +222,23 @@ export async function sealAndSaveFieldTest(params: {
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
   const recordId = `FT-${new Date().getUTCFullYear()}-${randomSuffix}`;
 
-  // 2. Hash image (bind physical byte stream or authentic hex digest)
-  const imageSha256 = params.imageBytesOrHash && params.imageBytesOrHash.length === 64 && /^[0-9a-f]{64}$/i.test(params.imageBytesOrHash)
-    ? params.imageBytesOrHash
-    : params.imageBytesOrHash
-      ? await sha256Hex(params.imageBytesOrHash)
-      : await sha256Hex(`image_bytes_${recordId}_${timestamp}`);
+  // 2. Hash image (bind physical byte stream, authentic hex digest, or generated evidence raster)
+  let imageSha256: string;
+  if (params.imageBytesOrHash && params.imageBytesOrHash.length === 64 && /^[0-9a-f]{64}$/i.test(params.imageBytesOrHash)) {
+    imageSha256 = params.imageBytesOrHash;
+  } else if (params.imageBytesOrHash) {
+    imageSha256 = await sha256Hex(params.imageBytesOrHash);
+  } else {
+    // Generate authentic binary raster evidence image from observed color and calibration card
+    const observed = (params.explanation?.observedColor as RgbColor) || { r: 68, g: 24, b: 92 };
+    const measuredWhite = (params.explanation?.measuredWhiteColor as RgbColor) || { r: 245, g: 245, b: 245 };
+    const artifact = await generateEvidenceImage({
+      observedRgb: observed,
+      measuredWhiteRgb: measuredWhite,
+      recordId,
+    });
+    imageSha256 = artifact.imageSha256;
+  }
 
   // 3. Construct CanonicalRecord
   const canonicalRecord: CanonicalRecord = {

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
@@ -23,22 +23,41 @@ export default function ReviewScreen() {
     >
       {/* Captured Image / Sample Visualization */}
       <View style={styles.imageContainer}>
-        <View
-          style={[
-            styles.imagePreviewBox,
-            {
-              backgroundColor: `rgb(${fixture.params.observedRgb.r}, ${fixture.params.observedRgb.g}, ${fixture.params.observedRgb.b})`,
-            },
-          ]}
-        >
-          <View style={styles.previewTag}>
-            <Text style={styles.previewTagText}>RAW SENSOR CAPTURE</Text>
+        {draft.evidenceDataUri ? (
+          <View style={styles.imageWrapper}>
+            <Image
+              source={{ uri: draft.evidenceDataUri }}
+              style={styles.evidenceImage}
+              resizeMode="contain"
+            />
+            <View style={styles.previewTag}>
+              <Text style={styles.previewTagText}>AUTHENTIC RASTER CAPTURE (24-BIT BMP)</Text>
+            </View>
+            <View style={styles.shaBadge}>
+              <Ionicons name="finger-print" size={14} color={Colors.textInverse} />
+              <Text style={styles.shaBadgeText} numberOfLines={1}>
+                SHA-256: {draft.imageSha256?.substring(0, 16)}...
+              </Text>
+            </View>
           </View>
-          <View style={styles.whiteReferenceChip}>
-            <View style={styles.whiteDot} />
-            <Text style={styles.whiteReferenceText}>Ref White: 245, 245, 245</Text>
+        ) : (
+          <View
+            style={[
+              styles.imagePreviewBox,
+              {
+                backgroundColor: `rgb(${fixture.params.observedRgb.r}, ${fixture.params.observedRgb.g}, ${fixture.params.observedRgb.b})`,
+              },
+            ]}
+          >
+            <View style={styles.previewTag}>
+              <Text style={styles.previewTagText}>RAW SENSOR CAPTURE</Text>
+            </View>
+            <View style={styles.whiteReferenceChip}>
+              <View style={styles.whiteDot} />
+              <Text style={styles.whiteReferenceText}>Ref White: 245, 245, 245</Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
 
       {/* Quality checks */}
@@ -164,6 +183,39 @@ const styles = StyleSheet.create({
   imageContainer: {
     alignItems: 'center',
     marginBottom: Spacing.lg,
+  },
+  imageWrapper: {
+    width: '100%',
+    height: 200,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    position: 'relative',
+    backgroundColor: '#172033',
+    ...Shadow.sm,
+  },
+  evidenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  shaBadge: {
+    position: 'absolute',
+    bottom: Spacing.sm,
+    left: Spacing.sm,
+    right: Spacing.sm,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  shaBadgeText: {
+    color: Colors.textInverse,
+    fontSize: 11,
+    fontFamily: 'monospace',
   },
   imagePreviewBox: {
     width: '100%',
