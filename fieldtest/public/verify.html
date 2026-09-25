@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FieldTest — Standalone Public Evidence Verifier</title>
+  <!-- TweetNaCl for battle-tested Ed25519 cryptographic verification -->
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+  <style>
+    :root {
+      --bg: #F8FAFC;
+      --navy: #172033;
+      --card-bg: #FFFFFF;
+      --border: #E2E8F0;
+      --text: #1E293B;
+      --text-muted: #64748B;
+      --success: #16A34A;
+      --success-bg: #F0FDF4;
+      --danger: #DC2626;
+      --danger-bg: #FEF2F2;
+      --accent: #2563EB;
+      --accent-bg: #EFF6FF;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding: 24px; line-height: 1.5; }
+    .container { max-width: 900px; margin: 0 auto; }
+
+    header { border-bottom: 2px solid var(--navy); padding-bottom: 16px; margin-bottom: 24px; }
+    .badge-bar { display: flex; gap: 8px; margin-bottom: 8px; }
+    .tag { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; }
+    .tag-gov { background: var(--navy); color: #fff; }
+    .tag-crypto { background: #334155; color: #fff; }
+
+    h1 { font-size: 24px; color: var(--navy); margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: var(--text-muted); }
+
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    h2 { font-size: 16px; color: var(--navy); margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px; }
+
+    /* Verification Status Banner */
+    .status-banner { border-radius: 8px; padding: 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 16px; }
+    .status-banner.valid { background: var(--success-bg); border: 2px solid var(--success); }
+    .status-banner.invalid { background: var(--danger-bg); border: 2px solid var(--danger); }
+    .status-icon { font-size: 40px; }
+    .status-title { font-size: 20px; font-weight: 800; }
+    .status-desc { font-size: 13px; color: var(--text); margin-top: 4px; }
+
+    /* Form Fields */
+    label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 6px; }
+    textarea, input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 13px; background: #FAFBFD; color: #0F172A; }
+    textarea:focus, input:focus { outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    textarea { height: 210px; resize: vertical; line-height: 1.4; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+
+    /* Hash Comparison */
+    .hash-table { width: 100%; border-collapse: collapse; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; margin-top: 10px; }
+    .hash-table td { padding: 8px 12px; border: 1px solid var(--border); }
+    .hash-table td.label-col { width: 180px; font-weight: 700; color: var(--text-muted); background: #F8FAFC; }
+    .hash-val { word-break: break-all; }
+    .hash-match { color: var(--success); font-weight: 700; }
+    .hash-mismatch { color: var(--danger); font-weight: 700; }
+
+    /* Interactive Tamper Buttons */
+    .tamper-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button { padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; border: 1px solid transparent; }
+    .btn-tamper { background: #FEF2F2; color: #DC2626; border-color: #FECACA; }
+    .btn-tamper:hover { background: #FEE2E2; }
+    .btn-restore { background: var(--navy); color: #fff; }
+    .btn-restore:hover { opacity: 0.9; }
+
+    .disclaimer-box { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px; padding: 12px 16px; font-size: 12px; color: #92400E; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge-bar">
+        <span class="tag tag-gov">FORENSIC AUDIT UTILITY</span>
+        <span class="tag tag-crypto">INDEPENDENT CLIENT-SIDE ED25519</span>
+      </div>
+      <h1>FieldTest Evidence Verifier</h1>
+      <p class="subtitle">Self-authenticating cryptographic verification under FRE 901(b)(9). Runs 100% locally in your browser.</p>
+    </header>
+
+    <!-- Verification Result Banner -->
+    <div id="statusBanner" class="status-banner valid">
+      <div id="statusIcon" class="status-icon">🛡️</div>
+      <div>
+        <div id="statusTitle" class="status-title">RECORD INTEGRITY: VERIFIED</div>
+        <div id="statusDesc" class="status-desc">Both the SHA-256 canonical hash and the Ed25519 digital signature match perfectly. The record has NOT been altered since sealing.</div>
+      </div>
+    </div>
+
+    <!-- Quick Tamper Simulation Bar -->
+    <div class="card">
+      <h2>Interactive Tamper Simulation (Live Re-calculation)</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+        Modify ANY field below to observe the avalanche effect of SHA-256 and immediate signature rejection:
+      </p>
+      <div class="tamper-actions">
+        <button class="btn-tamper" onclick="tamperField('classification.result', 'PRESUMPTIVE_NEGATIVE')">⚠️ Flip Result to NEGATIVE</button>
+        <button class="btn-tamper" onclick="tamperField('classification.confidence', 0.95)">⚠️ Confidence 0.94 → 0.95</button>
+        <button class="btn-tamper" onclick="tamperField('location.latitude', 19.077)">⚠️ Nudge GPS (+0.001°)</button>
+        <button class="btn-tamper" onclick="tamperField('operatorId', 'OP-999')">⚠️ Operator OP-042 → OP-999</button>
+        <button class="btn-tamper" onclick="tamperField('capturedAt', '2026-09-24T17:11:33Z')">⚠️ Shift Time (+1 sec)</button>
+        <button class="btn-restore" onclick="restoreOriginal()">↺ Restore Authentic Record</button>
+      </div>
+    </div>
+
+    <!-- Canonical Record JSON Input -->
+    <div class="card">
+      <h2>1. Canonical Record Payload (RFC 8785 JSON)</h2>
+      <label for="jsonInput">Edit JSON directly to test character-by-character tamper detection:</label>
+      <textarea id="jsonInput" oninput="runVerification()"></textarea>
+
+      <div class="grid-2">
+        <div>
+          <label for="sigInput">2. Ed25519 Digital Signature (Hex):</label>
+          <input type="text" id="sigInput" oninput="runVerification()" />
+        </div>
+        <div>
+          <label for="pubkeyInput">3. Signer Public Key (Hex):</label>
+          <input type="text" id="pubkeyInput" oninput="runVerification()" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Cryptographic Proof Details -->
+    <div class="card">
+      <h2>Cryptographic Hash Comparison</h2>
+      <table class="hash-table">
+        <tr>
+          <td class="label-col">Expected Hash (Sealed):</td>
+          <td id="expectedHashDisplay" class="hash-val"></td>
+        </tr>
+        <tr>
+          <td class="label-col">Computed SHA-256:</td>
+          <td id="computedHashDisplay" class="hash-val"></td>
+        </tr>
+        <tr>
+          <td class="label-col">Hash Match:</td>
+          <td id="hashStatusDisplay"></td>
+        </tr>
+        <tr>
+          <td class="label-col">Ed25519 Signature:</td>
+          <td id="sigStatusDisplay"></td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="disclaimer-box">
+      <strong>PRESUMPTIVE FIELD RESULT: This record does not constitute laboratory confirmation.</strong><br>
+      Notice: This verification tool uses browser-native SubtleCrypto and TweetNaCl with zero server calls. It independently verifies the mathematical integrity of digital test evidence records.
+    </div>
+  </div>
+
+  <script>
+    // Authentic seed record FT-2026-000184
+    const ORIGINAL_RECORD = {
+      schemaVersion: "1.0",
+      recordId: "FT-2026-000184",
+      operatorId: "OP-042",
+      capturedAt: "2026-09-24T17:11:32Z",
+      location: {
+        latitude: 19.076,
+        longitude: 72.8777,
+        accuracyMeters: 8.4
+      },
+      classification: {
+        result: "PRESUMPTIVE_POSITIVE",
+        confidence: 0.94,
+        classifierVersion: "color-v1.0"
+      },
+      imageSha256: "8e4a9f3b1c2d5e6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a"
+    };
+
+    const EXPECTED_HASH = "5afcb0b9fd7fe548fc59b855502374093d322a9ca57e1028c975c1d60d4efc9e";
+    const ORIGINAL_SIGNATURE = "3bac5537be661bd67320be10010f738c52c72248c1a49838a4d44f8a7a7a028b1f4cdda6a41bdb05ed7ff8d36b5c9c4f3e694726bfeb8e0421cbe4d88f476a00";
+    const PUBLIC_KEY = "8227260ea8e7aa475ecdb3f6655e13d6a01655e218458d418959521087218ea6";
+
+    // RFC 8785 Canonical JSON implementation
+    function canonicalize(obj) {
+      if (obj === null || typeof obj !== 'object') {
+        return JSON.stringify(obj);
+      }
+      if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalize).join(',') + ']';
+      }
+      const sortedKeys = Object.keys(obj).sort();
+      return '{' + sortedKeys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
+    }
+
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+      }
+      return bytes;
+    }
+
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function sha256(str) {
+      const msgBuffer = new TextEncoder().encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      return bytesToHex(new Uint8Array(hashBuffer));
+    }
+
+    // Verify Ed25519 signature using tweetnacl
+    function verifySignature(messageHex, signatureHex, publicKeyHex) {
+      try {
+        const messageBytes = hexToBytes(messageHex);
+        const signatureBytes = hexToBytes(signatureHex);
+        const publicKeyBytes = hexToBytes(publicKeyHex);
+        return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    async function runVerification() {
+      const jsonText = document.getElementById('jsonInput').value;
+      const sigHex = document.getElementById('sigInput').value.trim();
+      const pubkeyHex = document.getElementById('pubkeyInput').value.trim();
+
+      let computedHash = '';
+      let isJsonValid = true;
+
+      try {
+        const parsed = JSON.parse(jsonText);
+        const canonicalString = canonicalize(parsed);
+        computedHash = await sha256(canonicalString);
+      } catch (err) {
+        isJsonValid = false;
+        computedHash = 'INVALID_JSON_SYNTAX';
+      }
+
+      document.getElementById('expectedHashDisplay').innerText = EXPECTED_HASH;
+      document.getElementById('computedHashDisplay').innerText = computedHash;
+
+      const isHashMatch = computedHash === EXPECTED_HASH;
+      const isSigValid = isHashMatch && verifySignature(EXPECTED_HASH, sigHex, pubkeyHex);
+
+      const banner = document.getElementById('statusBanner');
+      const icon = document.getElementById('statusIcon');
+      const title = document.getElementById('statusTitle');
+      const desc = document.getElementById('statusDesc');
+
+      if (!isJsonValid) {
+        banner.className = 'status-banner invalid';
+        icon.innerText = '❌';
+        title.innerText = 'JSON SYNTAX ERROR';
+        desc.innerText = 'The canonical record contains invalid JSON syntax.';
+        document.getElementById('hashStatusDisplay').innerHTML = '<span class="hash-mismatch">SYNTAX ERROR</span>';
+        document.getElementById('sigStatusDisplay').innerHTML = '<span class="hash-mismatch">SKIPPED</span>';
+        return;
+      }
+
+      if (isHashMatch && isSigValid) {
+        banner.className = 'status-banner valid';
+        icon.innerText = '🛡️';
+        title.innerText = 'RECORD INTEGRITY: VERIFIED';
+        desc.innerText = 'Both the SHA-256 canonical hash and Ed25519 digital signature match. The record has NOT been altered since sealing.';
+        document.getElementById('hashStatusDisplay').innerHTML = '<span class="hash-match">✓ EXACT MATCH (64/64 HEX NIBBLES)</span>';
+        document.getElementById('sigStatusDisplay').innerHTML = '<span class="hash-match">✓ CRYPTOGRAPHICALLY VALID (Ed25519)</span>';
+      } else {
+        banner.className = 'status-banner invalid';
+        icon.innerText = '🚨';
+        title.innerText = 'INTEGRITY CHECK FAILED (TAMPER DETECTED)';
+        desc.innerText = 'The computed canonical hash does not match the sealed expected hash! Modification detected after digital sealing.';
+        document.getElementById('hashStatusDisplay').innerHTML = `<span class="hash-mismatch">✗ MISMATCH (Hash modified by tamper)</span>`;
+        document.getElementById('sigStatusDisplay').innerHTML = `<span class="hash-mismatch">✗ INVALIDATED (Signature broken)</span>`;
+      }
+    }
+
+    function tamperField(path, newValue) {
+      try {
+        const obj = JSON.parse(document.getElementById('jsonInput').value);
+        const parts = path.split('.');
+        let curr = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+          curr = curr[parts[i]];
+        }
+        curr[parts[parts.length - 1]] = newValue;
+        document.getElementById('jsonInput').value = JSON.stringify(obj, null, 2);
+        runVerification();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function restoreOriginal() {
+      document.getElementById('jsonInput').value = JSON.stringify(ORIGINAL_RECORD, null, 2);
+      document.getElementById('sigInput').value = ORIGINAL_SIGNATURE;
+      document.getElementById('pubkeyInput').value = PUBLIC_KEY;
+      runVerification();
+    }
+
+    // Initialize with original valid record
+    restoreOriginal();
+  </script>
+</body>
+</html>

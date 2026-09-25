@@ -158,6 +158,28 @@ export default function SealedScreen() {
         </View>
       </View>
 
+      {/* QR / Self-Authenticating Payload Card (Approach 3) */}
+      <View style={styles.qrCard}>
+        <View style={styles.qrHeader}>
+          <Ionicons name="qr-code-outline" size={20} color={Colors.primary} />
+          <Text style={styles.sectionTitle}>SELF-AUTHENTICATING VERIFICATION PAYLOAD</Text>
+        </View>
+        <Text style={styles.qrDesc}>
+          Scan with any mobile camera or paste into the standalone web verifier. Satisfies FRE 901(b)(9) electronic self-authentication without requiring the FieldTest app:
+        </Text>
+        <View style={styles.payloadBox}>
+          <Text style={styles.payloadCode} numberOfLines={5}>
+            {JSON.stringify({
+              recordId,
+              recordHash: sealedRecord?.record_hash || 'pending...',
+              signature: sealedRecord?.signature || 'pending...',
+              publicKey: sealedRecord?.public_key || 'pending...',
+              verifyUrl: `https://fieldtest.app/verify/${recordId}`,
+            }, null, 2)}
+          </Text>
+        </View>
+      </View>
+
       {/* Disclaimer */}
       <View style={styles.disclaimer}>
         <Ionicons name="warning" size={16} color={Colors.warning} />
@@ -405,6 +427,38 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.text,
     fontFamily: 'monospace',
+  },
+  qrCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.sm,
+  },
+  qrHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: Spacing.xs,
+  },
+  qrDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: Spacing.md,
+  },
+  payloadBox: {
+    backgroundColor: '#0F172A',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  payloadCode: {
+    color: '#38BDF8',
+    fontSize: 10,
+    fontFamily: 'monospace',
+    lineHeight: 15,
   },
   disclaimer: {
     flexDirection: 'row',

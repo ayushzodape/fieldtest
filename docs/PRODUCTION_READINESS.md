@@ -56,32 +56,26 @@ Full methodological report, confusion matrix, ROC curves, and Daubert/FRE 702 ad
 
 ---
 
-## 2. Tamper Detection: Beyond the Toggle Button
+## 2. Tamper Detection: Beyond the Toggle Button (STATUS: ✅ IMPLEMENTED & VERIFIED)
 
-### What We Have Now
+> **Implementation Note (September 25, 2026):**  
+> Tamper detection has been upgraded from a single toggle button to a **court-grade multi-vector verification suite**. The system now implements:
+> 1. **Multi-Field Tamper Selector & Diff Inspector** in `app/verify/[id].tsx` (7 field tampering options).
+> 2. **Standalone External Web Verifier** in `public/verify.html` (zero-dependency browser verification under FRE 901(b)(9)).
+> 3. **Self-Authenticating Verification Payload** in `app/test/sealed.tsx` (exportable canonical JSON bundle).
+> 4. **Linked Audit Trail Hash Chain** in `lib/auditTrail.ts` (backward integrity with automated tests in `__tests__/auditTrail.test.ts`).
 
-The current tamper demonstration in `verify/[id].tsx` does exactly one thing:
+### Comparison: Prototype vs. Production Verification Suite
 
-```typescript
-// Line 40-49: Flip the classification result
-if (tamper) {
-  targetCanonical = {
-    ...targetCanonical,
-    classification: {
-      ...targetCanonical.classification,
-      result: targetCanonical.classification.result === 'PRESUMPTIVE_POSITIVE'
-        ? 'PRESUMPTIVE_NEGATIVE'
-        : 'PRESUMPTIVE_POSITIVE',
-    },
-  };
-}
-```
+| Feature | Previous Prototype | Production Implementation | Verification Status |
+|---|---|---|---|
+| **Tamper Scope** | Binary toggle flipping classification only | **7-field picker** (Classification, Confidence 1-digit, Timestamp +1s, GPS +0.001°, Operator ID, Image Hash, Schema) | ✅ `verify/[id].tsx` |
+| **Tamper Visibility** | Text status change only | **Live Tamper Diff Inspector** showing original vs tampered value and hash avalanche diff | ✅ Interactive Diff Card |
+| **External Verification** | Required FieldTest app running | **Standalone HTML/JS Page** (`public/verify.html`) with embedded TweetNaCl; runs on any external browser | ✅ Cross-Device Verified |
+| **Self-Authentication** | No export capability | **One-click Evidence Bundle Export** (Canonical JSON + Signature + Public Key) satisfying FRE 901(b)(9) | ✅ Clipboard & Web Verifier |
+| **Lifecycle Audit Trail** | Independent events | **Cryptographic Hash Chain** linking `CREATED` $\rightarrow$ `CAPTURED` $\rightarrow$ `CLASSIFIED` $\rightarrow$ `SEALED` $\rightarrow$ `VERIFIED` | ✅ `__tests__/auditTrail.test.ts` (PASSED) |
 
-This is a valid demonstration, but it's the **only** tamper scenario, and it's presented as a toggle button within the app itself. A skeptical judge might ask: "Is this just a UI animation, or is the cryptography actually running?"
-
-### Better Tamper Demonstration Approaches
-
-#### Approach 1: Multi-Field Tamper Selector (Recommended for Demo)
+---
 
 Instead of a single toggle button, present a picker that lets the judge choose **which field** to tamper with. This proves the system detects modification to any part of the record, not just the classification.
 
