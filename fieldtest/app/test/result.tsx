@@ -1,16 +1,19 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, FontSize, FontWeight, Shadow } from '../../constants/colors';
 import { Config } from '../../constants/config';
 import { getActiveTestDraft, updateActiveTestDraft } from '../../lib/testSession';
 import { classifySample, DEMO_FIXTURES } from '../../lib/classifier';
+import { promptBiometricGate, getActiveSession } from '../../lib/auth';
 
 export default function ResultScreen() {
   const router = useRouter();
   const draft = getActiveTestDraft();
   const fixture = DEMO_FIXTURES[draft.scenarioKey];
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSealing, setIsSealing] = useState(false);
 
   // Run deterministic color classification
   const classification = useMemo(() => {
@@ -188,14 +191,50 @@ export default function ResultScreen() {
         <Text style={styles.disclaimerText}>{Config.disclaimer}</Text>
       </View>
 
+      {/* Biometric Gate Error Alert */}
+      {authError && (
+        <View style={{ backgroundColor: Colors.dangerLight, borderWidth: 1, borderColor: Colors.danger, borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.md, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="finger-print" size={20} color={Colors.danger} />
+          <Text style={{ flex: 1, color: Colors.danger, fontSize: FontSize.xs, fontWeight: FontWeight.semibold }}>
+            {authError}
+          </Text>
+        </View>
+      )}
+
       {/* Action to Seal */}
       <TouchableOpacity
-        style={styles.sealButton}
-        onPress={() => router.push('/test/sealed')}
+        style={[styles.sealButton, isSealing && { opacity: 0.7 }]}
+        onPress={async () => {
+          setIsSealing(true);
+          setAuthError(null);
+          try {
+            const active = getActiveSession();
+            if (active.isExpired) {
+              setAuthError('Operator session expired. Inactivity timeout enforced.');
+              setIsSealing(false);
+              return;
+            }
+            const gate = await promptBiometricGate({
+              promptMessage: 'Biometric authorization required to seal evidence record',
+            });
+            if (gate.success) {
+              router.push('/test/sealed');
+            } else {
+              setAuthError(gate.error || 'Biometric authorization failed');
+            }
+          } catch {
+            setAuthError('Security verification failed');
+          } finally {
+            setIsSealing(false);
+          }
+        }}
+        disabled={isSealing}
         activeOpacity={0.85}
       >
-        <Ionicons name="lock-closed" size={20} color={Colors.textInverse} />
-        <Text style={styles.sealButtonText}>Seal & Sign Digital Record</Text>
+        <Ionicons name="finger-print" size={20} color={Colors.textInverse} />
+        <Text style={styles.sealButtonText}>
+          {isSealing ? 'VERIFYING BIOMETRICS...' : 'Biometric Gate: Seal & Sign Record'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );

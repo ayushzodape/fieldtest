@@ -10,7 +10,12 @@ CREATE TABLE IF NOT EXISTS public.operators (
     badge_number TEXT UNIQUE NOT NULL,
     full_name TEXT NOT NULL,
     agency TEXT NOT NULL DEFAULT 'Department of Law Enforcement',
+    division TEXT NOT NULL DEFAULT 'Forensic Narcotics Division',
     role TEXT NOT NULL DEFAULT 'operator' CHECK (role IN ('operator', 'supervisor', 'auditor', 'admin')),
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'EXPIRED')),
+    clearance_level TEXT NOT NULL DEFAULT 'LEVEL_1_FIELD' CHECK (clearance_level IN ('LEVEL_1_FIELD', 'LEVEL_2_SUPERVISOR', 'LEVEL_3_AUDITOR')),
+    badge_expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '2 years'),
+    mfa_enforced BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -68,7 +73,10 @@ CREATE INDEX IF NOT EXISTS idx_test_images_test_id ON public.test_images(test_id
 CREATE TABLE IF NOT EXISTS public.audit_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     record_id TEXT NOT NULL REFERENCES public.field_tests(record_id),
-    event_type TEXT NOT NULL CHECK (event_type IN ('RECORD_CREATED', 'RECORD_SEALED', 'RECORD_VERIFIED', 'TAMPER_DETECTED', 'RECORD_EXPORTED')),
+    event_type TEXT NOT NULL CHECK (event_type IN (
+        'RECORD_CREATED', 'RECORD_SEALED', 'RECORD_VERIFIED', 'TAMPER_DETECTED', 'RECORD_EXPORTED',
+        'AUTH_LOGIN', 'AUTH_LOGOUT', 'AUTH_BIOMETRIC_PASSED', 'AUTH_BIOMETRIC_FAILED', 'AUTH_BADGE_VERIFIED', 'AUTH_SESSION_TIMEOUT', 'AUTH_MFA_VERIFIED'
+    )),
     operator_id TEXT REFERENCES public.operators(badge_number),
     details JSONB,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()

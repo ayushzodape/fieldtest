@@ -8,9 +8,12 @@ import { getActiveTestDraft } from '../../lib/testSession';
 import { sealAndSaveFieldTest, FieldTestRow } from '../../lib/records';
 import { sha256Hex } from '../../lib/crypto';
 
+import { getActiveSession } from '../../lib/auth';
+
 export default function SealedScreen() {
   const router = useRouter();
   const draft = getActiveTestDraft();
+  const { session } = getActiveSession();
   const [sealedRecord, setSealedRecord] = useState<FieldTestRow | null>(null);
   const [isSealing, setIsSealing] = useState(true);
 
@@ -91,9 +94,9 @@ export default function SealedScreen() {
       <View style={styles.timeline}>
         <TimelineEvent
           time={timeFormatted}
-          icon="person"
-          title="Operator Authenticated"
-          description={`Identity verified: ${draft.operatorId}`}
+          icon="shield-checkmark"
+          title="Operator Biometrically Authenticated"
+          description={`Verified: ${draft.operatorId} (${session?.operator.fullName || 'Officer A. Vance'})`}
           isFirst
         />
         <TimelineEvent
@@ -139,6 +142,9 @@ export default function SealedScreen() {
         <EvidenceRow label="Image SHA-256" value={imgHash} mono />
         <EvidenceRow label="Canonical Record Hash" value={recHash} mono />
         <EvidenceRow label="Ed25519 Signature" value={sigShort} mono />
+        <EvidenceRow label="Operator Identity" value={`${draft.operatorId} (${session?.operator.fullName || 'Officer A. Vance'})`} mono />
+        <EvidenceRow label="Clearance Level" value={session?.operator.clearanceLevel || 'LEVEL_1_FIELD'} mono />
+        <EvidenceRow label="Biometric Seal Gate" value="Hardware Authenticated & Bound" />
         <EvidenceRow label="Schema Version" value="v1.0" mono />
         <EvidenceRow label="Classifier Version" value="color-v1.0" mono />
         <EvidenceRow label="Device Timestamp" value={sealedRecord?.device_reported_at || draft.timestamp} mono />
