@@ -1,0 +1,39 @@
+name: FieldTest CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    name: Lint, Typecheck & Forensic Test Suites
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+          cache-dependency-path: fieldtest/package.json
+
+      - name: Install Dependencies
+        working-directory: fieldtest
+        run: npm ci
+
+      - name: Strict TypeScript Typecheck
+        working-directory: fieldtest
+        run: npm run typecheck
+
+      - name: Execute Complete Forensic Test Matrix (11 Suites)
+        working-directory: fieldtest
+        run: npm test
+
+      - name: Test Production Web Bundle Export
+        working-directory: fieldtest
+        run: npx expo export --platform web --output-dir dist

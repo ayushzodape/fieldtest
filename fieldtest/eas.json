@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "enterpriseProvisioning": "adhoc"
+      },
+      "env": {
+        "EXPO_PUBLIC_SCHEMA_VERSION": "1.0",
+        "EXPO_PUBLIC_CLASSIFIER_VERSION": "color-v1.0",
+        "EXPO_PUBLIC_SIGNER_PUBLIC_KEY": "8227260ea8e7aa475ecdb3f6655e13d6a01655e218458d418959521087218ea6"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
