@@ -384,3 +384,23 @@ export const DEMO_FIXTURES: Record<
     },
   },
 };
+
+/**
+ * Convenient two-vector CIEDE2000 colorimetry classification helper
+ */
+export function classifyColorimetry(
+  observedRgb: RgbColor,
+  baselineRgb?: RgbColor,
+  targetPositiveRgb?: RgbColor
+): Classification {
+  return classifySample({
+    observedRgb,
+    baselineRgb,
+    targetPositiveRgb,
+    referenceCardDetected: true,
+    testRegionDetected: true,
+    lightingQuality: 'GOOD',
+    focusQuality: 'GOOD',
+  });
+}
+

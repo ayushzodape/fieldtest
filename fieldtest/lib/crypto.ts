@@ -106,6 +106,25 @@ export function generateEd25519KeyPair(): { publicKey: string; secretKey: string
 }
 
 /**
+ * Generate deterministic Ed25519 keypair from a seed string (ideal for repeatable test fixtures & demo environments)
+ */
+export function generateDeterministicKeyPair(seed: string): { publicKey: string; secretKey: string; privateKey: string } {
+  const seedBytes = new Uint8Array(32);
+  const enc = new TextEncoder().encode(seed);
+  for (let i = 0; i < 32; i++) {
+    seedBytes[i] = (enc[i % enc.length] || 0) ^ ((i * 17) & 0xff);
+  }
+  const kp = nacl.sign.keyPair.fromSeed(seedBytes);
+  const pub = bytesToHex(kp.publicKey);
+  const sec = bytesToHex(kp.secretKey);
+  return {
+    publicKey: pub,
+    secretKey: sec,
+    privateKey: sec,
+  };
+}
+
+/**
  * Server-side / Demo signing helper
  * Produces a 64-byte Ed25519 detached signature formatted as hex
  */
@@ -114,6 +133,22 @@ export function signCanonicalString(canonicalString: string, secretKeyHex: strin
   const secretKeyBytes = hexToBytes(secretKeyHex);
   const signatureBytes = nacl.sign.detached(messageBytes, secretKeyBytes);
   return bytesToHex(signatureBytes);
+}
+
+export const canonicalizeRecord = canonicalizeJson;
+
+export function signCanonicalRecord(record: unknown, secretKeyHex: string): string {
+  const canonical = canonicalizeJson(record);
+  return signCanonicalString(canonical, secretKeyHex);
+}
+
+export async function verifyCanonicalRecordSignature(
+  record: unknown,
+  signatureHex: string,
+  publicKeyHex: string
+): Promise<boolean> {
+  const canonical = canonicalizeJson(record);
+  return verifyEd25519Signature(canonical, signatureHex, publicKeyHex);
 }
 
 /**

@@ -55,6 +55,7 @@ export interface FieldTestRow {
   fix_type?: GpsFixType;
   is_mock_location?: boolean;
   hdop?: number;
+  altitude_meters?: number;
 }
 
 // Fallback demo records (compliant with 15 rules & cryptographically authentic)

@@ -175,3 +175,41 @@ export async function generateEvidenceImage(params: {
     mimeType: 'image/bmp',
   };
 }
+
+/**
+ * Fast synchronous calibration raster byte generator for unit testing & benchmarks
+ */
+export function generateCalibrationImageBytes(params: {
+  testRgb: RgbColor;
+  blankRgb?: RgbColor;
+  width?: number;
+  height?: number;
+}): Uint8Array {
+  const width = params.width || 64;
+  const height = params.height || 64;
+  const rowStride = Math.floor((width * 3 + 3) / 4) * 4;
+  const pixelArraySize = rowStride * height;
+  const fileSize = 54 + pixelArraySize;
+  const buffer = new Uint8Array(fileSize);
+  buffer[0] = 0x42;
+  buffer[1] = 0x4d;
+  const view = new DataView(buffer.buffer);
+  view.setUint32(2, fileSize, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = 54 + y * rowStride + x * 3;
+      buffer[offset] = params.testRgb.b;
+      buffer[offset + 1] = params.testRgb.g;
+      buffer[offset + 2] = params.testRgb.r;
+    }
+  }
+  return buffer;
+}
+

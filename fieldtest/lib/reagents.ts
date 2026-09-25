@@ -1,6 +1,6 @@
 import { RgbColor } from './classifier';
 
-export type ReagentKitId = 'marquis' | 'mecke' | 'scott' | 'mandelin';
+export type ReagentKitId = 'marquis' | 'mecke' | 'scott' | 'mandelin' | 'duquenois';
 
 export interface ReagentProfile {
   id: ReagentKitId;
@@ -19,8 +19,8 @@ export interface ReagentProfile {
 }
 
 /**
- * Standard Forensic Reagent Profiles calibrated against NIJ Standard 0604.01
- * and Clarke's Analysis of Drugs and Poisons.
+ * Standard Forensic Reagent Profiles calibrated against NIJ Standard 0604.01,
+ * Clarke's Analysis of Drugs and Poisons, and UNODC Rapid Testing Manual.
  */
 export const REAGENT_PROFILES: Record<ReagentKitId, ReagentProfile> = {
   marquis: {
@@ -83,4 +83,23 @@ export const REAGENT_PROFILES: Record<ReagentKitId, ReagentProfile> = {
       ambiguousBandMin: 5.0,
     },
   },
+  duquenois: {
+    id: 'duquenois',
+    name: 'Duquenois-Levine Reagent',
+    chemicalName: 'Vanillin (2%) / Acetaldehyde / Ethanol + Concentrated HCl + Chloroform',
+    targetAnalytes: ['Cannabis', 'Charas / Hashish', 'Ganja', 'THC / Cannabinoids'],
+    baselineRgb: { r: 238, g: 230, b: 210 }, // Faint amber reagent solution
+    targetPositiveRgb: { r: 72, g: 18, b: 104 }, // Distinctive indigo/violet extracted into lower chloroform layer
+    baselineDescription: 'Pale amber / clear reagent layer before extraction',
+    targetDescription: 'Deep violet / purple color transferred into bottom organic (chloroform) layer',
+    thresholds: {
+      baselineDepartureMin: 16.0,
+      targetConvergenceMax: 13.5,
+      ambiguousBandMin: 5.5,
+    },
+  },
 };
+
+export function getReagentProfile(id: ReagentKitId): ReagentProfile {
+  return REAGENT_PROFILES[id] || REAGENT_PROFILES.marquis;
+}

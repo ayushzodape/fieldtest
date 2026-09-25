@@ -36,7 +36,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "npx tsx __tests__/crypto.test.ts && npx tsx __tests__/records.test.ts && npx tsx __tests__/classifier.test.ts && npx tsx __tests__/calibration.test.ts && npx tsx __tests__/auditTrail.test.ts && npx tsx __tests__/temporalGeospatial.test.ts && npx tsx __tests__/authIdentity.test.ts",
+    "test": "npx tsx __tests__/crypto.test.ts && npx tsx __tests__/records.test.ts && npx tsx __tests__/classifier.test.ts && npx tsx __tests__/calibration.test.ts && npx tsx __tests__/auditTrail.test.ts && npx tsx __tests__/temporalGeospatial.test.ts && npx tsx __tests__/authIdentity.test.ts && npx tsx __tests__/integration.test.ts && npx tsx __tests__/e2eScenarios.test.ts && npx tsx __tests__/benchmarks.test.ts && npx tsx __tests__/sih26231.test.ts",
+    "test:integration": "npx tsx __tests__/integration.test.ts",
+    "test:e2e": "npx tsx __tests__/e2eScenarios.test.ts",
+    "test:bench": "npx tsx __tests__/benchmarks.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "private": true
